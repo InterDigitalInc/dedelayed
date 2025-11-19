@@ -1,0 +1,12 @@
+torch
+einops
+datasets
+fastprogress
+pillow
+ipython
+numpy
+matplotlib
+timm
+torchvision
+torchmetrics
+git+https://github.com/mit-han-lab/efficientvit.git
