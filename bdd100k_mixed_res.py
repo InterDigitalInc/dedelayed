@@ -1,5 +1,5 @@
 # This code is provided solely as supplementary material for the anonymized review of
-# CVPR 2025 submission 32197
+# CVPR 2025 submission # REDACTED
 #
 # It is intended exclusively for the purpose of verifying the reproducibility of the
 # results reported in the submission during the double-blind peer review process.
