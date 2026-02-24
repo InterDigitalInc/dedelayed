@@ -27,6 +27,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
         name="efficientvit-seg-l1-cityscapes",
         *,
         normalization_src: ImageNormalizationKind = "01",
+        normalization_dest: ImageNormalizationKind = "imagenet",
         temporal_depth: int = 4,
         temporal_width: int = 96,
         temporal_expand_ratio: int = 1,
@@ -35,6 +36,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
     ):
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
+        self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.main_model = EfficientViTSeg3D(
             name=name,
             temporal_depth=temporal_depth,
@@ -81,7 +83,9 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
         }
 
     def contextualize(self, x: Tensor) -> Tensor:
-        x = renormalize(x, src=self.normalization_src, dest="imagenet", channel_dim=1)
+        x = renormalize(
+            x, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
+        )
         return self.main_model.forward_images(x)
 
     def encode_image(self, x: Tensor) -> Tensor:
@@ -98,9 +102,11 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
         name="efficientvit-seg-b0-cityscapes",
         *,
         normalization_src: ImageNormalizationKind = "01",
+        normalization_dest: ImageNormalizationKind = "imagenet",
     ):
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
+        self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.image_model = create_efficientvit_seg_model(name, pretrained=True)
 
     def forward(self, x_local: Tensor, *, recv_stage2_backbone: Tensor | None = None):
@@ -108,8 +114,9 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
         input_stem = cast(OpSequential, model.backbone.input_stem)
         backbone = model.backbone
         head = model.head
+        z = x_local
         z = renormalize(
-            x_local, src=self.normalization_src, dest="imagenet", channel_dim=1
+            z, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
         )
 
         # z = backbone(z)

@@ -22,9 +22,11 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
         self,
         *,
         normalization_src: ImageNormalizationKind = "01",
+        normalization_dest: ImageNormalizationKind = "imagenet",
     ):
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
+        self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.main_model = EfficientViTSeg3D()
         self.mlp_pre_pool = PrepoolBlock()
         self.mlp_post_pool = PostpoolBlock()
@@ -63,7 +65,9 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
         }
 
     def contextualize(self, x: Tensor) -> Tensor:
-        x = renormalize(x, src=self.normalization_src, dest="imagenet", channel_dim=1)
+        x = renormalize(
+            x, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
+        )
         return self.main_model.forward_images(x)
 
     def encode_image(self, x: Tensor) -> Tensor:
@@ -75,8 +79,17 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_local")
 class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
-    def __init__(self, cls_classes=1000, seg_classes=19):
+    def __init__(
+        self,
+        cls_classes=1000,
+        seg_classes=19,
+        *,
+        normalization_src: ImageNormalizationKind = "01",
+        normalization_dest: ImageNormalizationKind = "minus1_1",
+    ):
         super().__init__()
+        self.normalization_src: ImageNormalizationKind = normalization_src
+        self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.image_model = MSTransformer2D(
             cls_classes=cls_classes, seg_classes=seg_classes
         )
@@ -88,6 +101,9 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
         recv_stage2_backbone: Tensor | None = None,
     ):
         z = x_local
+        z = renormalize(
+            z, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
+        )
         z = self.image_model.T1(z)
         z = z if recv_stage2_backbone is None else z + recv_stage2_backbone
         y = z
