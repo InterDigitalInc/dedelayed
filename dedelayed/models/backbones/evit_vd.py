@@ -1,3 +1,7 @@
+# Copyright (c) 2026, InterDigital
+# All rights reserved.
+# See LICENSE under the root folder.
+
 import einops
 import torch
 from efficientvit.seg_model_zoo import create_efficientvit_seg_model

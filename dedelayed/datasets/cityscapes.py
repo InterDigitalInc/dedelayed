@@ -1,3 +1,7 @@
+# Copyright (c) 2026, InterDigital
+# All rights reserved.
+# See LICENSE under the root folder.
+
 import PIL.Image
 import torch
 from torch import Tensor

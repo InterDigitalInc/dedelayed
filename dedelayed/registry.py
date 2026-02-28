@@ -1,3 +1,7 @@
+# Copyright (c) 2026, InterDigital
+# All rights reserved.
+# See LICENSE under the root folder.
+
 from typing import Callable, Dict, Type, TypeVar
 
 import torch.nn as nn
