@@ -120,12 +120,14 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d")
 class Dedelayed_v1_EfficientViTL1_MSTransformer2D(nn.Module):
-    def __init__(self, cls_classes=1000, seg_classes=19):
+    def __init__(
+        self,
+        remote_model: Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote,
+        local_model: Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local,
+    ):
         super().__init__()
-        self.remote_model = Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote()
-        self.local_model = Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(
-            cls_classes=cls_classes, seg_classes=seg_classes
-        )
+        self.remote_model = remote_model
+        self.local_model = local_model
 
     def forward(self, x_local, x_remote, *, past_ticks: int = 0):
         out_remote = self.remote_model(
