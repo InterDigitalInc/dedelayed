@@ -26,11 +26,7 @@ from torchvision.transforms.v2 import Resize
 from torchvision.transforms.v2.functional import pil_to_tensor
 from tqdm.auto import tqdm
 
-from dedelayed.models.dedelayed_v1.efficientvitl1_efficientvitb0 import (
-    Dedelayed_v1_EfficientViTL1_EfficientViTB0,
-    Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local,
-    Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote,
-)
+from dedelayed.registry import MODELS
 
 Config = SimpleNamespace
 
@@ -415,6 +411,15 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
     save_checkpoint(meta=meta, runtime=runtime, state=state)
 
 
+def build_fused_model(model_cfg: dict) -> torch.nn.Module:
+    name = model_cfg["name"]
+    kw = model_cfg.get("kwargs", {})
+    return MODELS[name](
+        remote_model=MODELS[f"{name}_remote"](**kw.get("remote_model", {})),
+        local_model=MODELS[f"{name}_local"](**kw.get("local_model", {})),
+    )
+
+
 def main() -> None:
     device = "cuda"
 
@@ -530,14 +535,7 @@ def main() -> None:
     )
     meta["hp"]["config"] = vars(config)
 
-    model_kw = dict(meta["hp"]["model"]["kwargs"])
-    remote_kw = dict(model_kw.pop("remote_model", {}))
-    local_kw = dict(model_kw.pop("local_model", {}))
-    model = Dedelayed_v1_EfficientViTL1_EfficientViTB0(
-        remote_model=Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(**remote_kw),
-        local_model=Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(**local_kw),
-        **model_kw,
-    )
+    model = build_fused_model(meta["hp"]["model"])
 
     model.to(device)
     model.compile(mode="max-autotune")
