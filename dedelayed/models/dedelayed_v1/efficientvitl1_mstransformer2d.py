@@ -50,18 +50,16 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
         z = self.main_model.vit3d(z)
         z = einops.rearrange(z, "b c f h w -> b (c f) h w", f=4)
 
-        # send_seg_logits = self.main_model.head(z)
+        # downlink_seg_logits = self.main_model.head(z)
 
         z = self.mlp_pre_pool(z)
         z = F.adaptive_avg_pool2d(z, output_size=output_size)
         z = self.mlp_post_pool(z)
-        send_features = {"stage2_backbone": z}
+        downlink_features = z
 
         return {
-            "send": {
-                "features": send_features,
-                # "seg_logits": send_seg_logits,
-            },
+            "downlink_features": downlink_features,
+            # "downlink_seg_logits": downlink_seg_logits,
         }
 
     def contextualize(self, x: Tensor) -> Tensor:
@@ -94,18 +92,13 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
             cls_classes=cls_classes, seg_classes=seg_classes
         )
 
-    def forward(
-        self,
-        x_local: Tensor,
-        *,
-        recv_stage2_backbone: Tensor | None = None,
-    ):
+    def forward(self, x_local: Tensor, *, downlink_features: Tensor | None = None):
         z = x_local
         z = renormalize(
             z, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
         )
         z = self.image_model.T1(z)
-        z = z if recv_stage2_backbone is None else z + recv_stage2_backbone
+        z = z if downlink_features is None else z + downlink_features
         y = z
         z = self.image_model.T2(z)
         y = y + self.image_model.P2(z)
@@ -137,8 +130,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D(nn.Module):
         )
 
         out_local = self.local_model(
-            x_local,
-            recv_stage2_backbone=out_remote["send"]["features"]["stage2_backbone"],
+            x_local, downlink_features=out_remote["downlink_features"]
         )
 
         seg_logits = out_local["seg_logits"]

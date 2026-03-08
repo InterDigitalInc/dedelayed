@@ -32,7 +32,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
         temporal_width: int = 96,
         temporal_expand_ratio: int = 1,
         temporal_norm_groups: int = 32,
-        send_channels: int = 32,
+        downlink_channels: int = 32,
     ):
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
@@ -46,7 +46,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
             pretrained_image_model=True,
         )
         self.mlp_pre_pool = PrepoolBlock(in_channels=temporal_width * 4)
-        self.mlp_post_pool = PostpoolBlock(out_channels=send_channels)
+        self.mlp_post_pool = PostpoolBlock(out_channels=downlink_channels)
 
     def forward(
         self,
@@ -68,18 +68,16 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
         z = self.main_model.vit3d(z)
         z = einops.rearrange(z, "b c f h w -> b (c f) h w", f=4)
 
-        # send_seg_logits = self.main_model.head(z)
+        # downlink_seg_logits = self.main_model.head(z)
 
         z = self.mlp_pre_pool(z)
         z = F.adaptive_avg_pool2d(z, output_size=output_size)
         z = self.mlp_post_pool(z)
-        send_features = {"stage2_backbone": z}
+        downlink_features = z
 
         return {
-            "send": {
-                "features": send_features,
-                # "seg_logits": send_seg_logits,
-            },
+            "downlink_features": downlink_features,
+            # "downlink_seg_logits": downlink_seg_logits,
         }
 
     def contextualize(self, x: Tensor) -> Tensor:
@@ -109,7 +107,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
         self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.image_model = create_efficientvit_seg_model(name, pretrained=True)
 
-    def forward(self, x_local: Tensor, *, recv_stage2_backbone: Tensor | None = None):
+    def forward(self, x_local: Tensor, *, downlink_features: Tensor | None = None):
         model = self.image_model
         input_stem = cast(OpSequential, model.backbone.input_stem)
         backbone = model.backbone
@@ -125,8 +123,8 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
         z = input_stem(z)
         for i in range(4):
             output_dict[f"stage{i}"] = z
-            if i == 2 and recv_stage2_backbone is not None:
-                z = z + recv_stage2_backbone
+            if i == 2 and downlink_features is not None:
+                z = z + downlink_features
             z = backbone.stages[i](z)
         output_dict["stage4"] = z
         output_dict["stage_final"] = z
@@ -168,8 +166,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0(nn.Module):
         )
 
         out_local = self.local_model(
-            x_local,
-            recv_stage2_backbone=out_remote["send"]["features"]["stage2_backbone"],
+            x_local, downlink_features=out_remote["downlink_features"]
         )
 
         seg_logits = out_local["seg_logits"]
