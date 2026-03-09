@@ -4,7 +4,6 @@
 
 import einops
 import torch
-from efficientvit.seg_model_zoo import create_efficientvit_seg_model
 
 from dedelayed.layers.splitvid_v10 import (
     ConvNormActND,
@@ -27,6 +26,8 @@ class EfficientViTSeg3D(torch.nn.Module):
         temporal_expand_ratio: int = 4,
         temporal_norm_groups: int = 8,
     ):
+        from efficientvit.seg_model_zoo import create_efficientvit_seg_model
+
         super().__init__()
         self.middle = middle
         self.image_model = create_efficientvit_seg_model(

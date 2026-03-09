@@ -9,9 +9,6 @@ from typing import cast
 import einops
 import torch.nn as nn
 import torch.nn.functional as F
-from efficientvit.models.nn.ops import OpSequential
-from efficientvit.models.utils.list import list_sum
-from efficientvit.seg_model_zoo import create_efficientvit_seg_model
 from torch import Tensor
 
 from dedelayed.data.normalization import ImageNormalizationKind, renormalize
@@ -102,12 +99,17 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
         normalization_src: ImageNormalizationKind = "01",
         normalization_dest: ImageNormalizationKind = "imagenet",
     ):
+        from efficientvit.seg_model_zoo import create_efficientvit_seg_model
+
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
         self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.image_model = create_efficientvit_seg_model(name, pretrained=True)
 
     def forward(self, x_local: Tensor, *, downlink_features: Tensor | None = None):
+        from efficientvit.models.nn.ops import OpSequential
+        from efficientvit.models.utils.list import list_sum
+
         model = self.image_model
         input_stem = cast(OpSequential, model.backbone.input_stem)
         backbone = model.backbone
