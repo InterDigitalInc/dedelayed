@@ -87,11 +87,8 @@ class EfficientViTSeg3D(torch.nn.Module):
             ),
         )
 
-    def embed_delay(self, video_embedding, delay):
-        delay_input = torch.as_tensor(
-            delay, device=video_embedding.device, dtype=video_embedding.dtype
-        ).reshape(-1, 1, 1, 1, 1)
-        return self.learnable_delay_embedding(delay_input)
+    def embed_delay(self, video_embedding, past_ticks):
+        return self.learnable_delay_embedding(past_ticks.reshape(-1, 1, 1, 1, 1))
 
     def forward_images(self, x):
         B, C, F, H, W = x.shape

@@ -132,7 +132,7 @@ def collate_train(batch, *, config: Config):
     x_local_size = compute_size(config.local_size, config.aspect, config.ips)
 
     ts = sample_temporal_indices(config)
-    past_ticks = ts.past_ticks
+    past_ticks = torch.full((len(batch),), float(ts.past_ticks), dtype=torch.float32)
 
     x_remote_batch = []
     x_local_batch = []
@@ -168,7 +168,7 @@ def collate_train(batch, *, config: Config):
     # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
     # x_local: [B, 3, H_local, W_local], float32
     # target: [B, H_target, W_target], uint8/int
-    # past_ticks: int frame offset
+    # past_ticks: [B], float32 frame offsets
     return x_remote, x_local, target, past_ticks
 
 
@@ -288,7 +288,11 @@ def evaluate(
         x_remote = x_remote.to(device)
         x_local = x_local.to(device)
         gt = gt.to(device)
-        out = model(x_local[:, :, 0], x_remote, past_ticks)
+        B, *_ = x_remote.shape
+        past_ticks_t = torch.full(
+            (B,), float(past_ticks), device=device, dtype=torch.float32
+        )
+        out = model(x_local[:, :, 0], x_remote, past_ticks_t)
         gt_h, gt_w = gt.shape[-2:]
         logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
         logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
@@ -364,6 +368,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         x_remote = x_remote.to(runtime.device)
         x_local = x_local.to(runtime.device)
         seg_label = seg_label.to(runtime.device).to(torch.long)
+        past_ticks = past_ticks.to(runtime.device)
 
         out = runtime.model(x_local, x_remote, past_ticks)
         logits_interp = PIL.Image.Resampling[runtime.config.seg_logits_interpolation]
