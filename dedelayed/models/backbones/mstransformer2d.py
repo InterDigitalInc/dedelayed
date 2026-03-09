@@ -116,6 +116,9 @@ class MSTransformer2D(torch.nn.Module):
             torch.nn.Conv2d(3200, cls_classes, kernel_size=1, stride=1, bias=True),
         )
 
+    def forward(self, x):
+        return self.forward_seg(x)
+
     def forward_features(self, x):
         x = self.T1(x)
         x = self.T2(x)
