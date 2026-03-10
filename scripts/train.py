@@ -16,6 +16,7 @@ from pathlib import Path
 from shlex import quote
 from types import SimpleNamespace
 from typing import NamedTuple
+from uuid import uuid4
 
 import datasets
 import einops
@@ -32,6 +33,7 @@ from tqdm.auto import tqdm
 
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
+from dedelayed.utils.trackers import Tracker, build_tracker
 from dedelayed.utils.utils import cache_by_id
 
 Config = SimpleNamespace
@@ -340,6 +342,7 @@ class TrainRuntime:
     frozen_modules: list[torch.nn.Module]
     optimizer: torch.optim.Optimizer
     scheduler: torch.optim.lr_scheduler.LambdaLR
+    tracker: Tracker
     device: str
     config: Config
     dataset: datasets.DatasetDict
@@ -393,6 +396,14 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         state.learning_rates.append(runtime.optimizer.param_groups[0]["lr"])
         state.grad_norms.append(float(grad_norm))
         state.global_step += 1
+        runtime.tracker.log_metrics(
+            {
+                "train/step/loss": state.train_losses[-1],
+                "train/step/lr": state.learning_rates[-1],
+                "train/step/grad_norm": state.grad_norms[-1],
+            },
+            step=state.global_step,
+        )
 
         train_bar.set_postfix(
             loss=f"{state.train_losses[-1]:.3g}",
@@ -407,8 +418,14 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
         compression=DEFAULT_EVAL_COMPRESSION,
     )
-    print(f"miou: {miou}")
     state.valid_mious.append(miou)
+    runtime.tracker.log_metrics(
+        {
+            "epoch": state.last_epoch_idx + 1,
+            "val/epoch/miou": state.valid_mious[-1],
+        },
+        step=state.global_step,
+    )
 
     meta["metrics"]["run"]["val_miou"] = miou
     meta["run"]["progress"]["epochs_completed"] = state.last_epoch_idx + 1
@@ -437,6 +454,23 @@ def main() -> None:
 
     meta = {
         "schema": "dedelayed.checkpoint_meta.v1",
+        "tracker": {
+            "project": "dedelayed",
+            "experiment": "default",
+            "run_name": None,
+            "log_dir": "logs/",
+            "backends": [
+                {"name": "console", "kwargs": {}},
+                {"name": "file", "kwargs": {}},
+                {"name": "aim", "kwargs": {}},
+                {"name": "mlflow", "kwargs": {}},
+                # {"name": "neptune", "kwargs": {"workspace": "workspace-name"}},
+                # {"name": "pluto", "kwargs": {}},
+                {"name": "tensorboard", "kwargs": {}},
+                {"name": "trackio", "kwargs": {}},
+                # {"name": "wandb", "kwargs": {}},
+            ],
+        },
         "checkpoint": {
             "dir": "checkpoints/",
             "name": (
@@ -448,6 +482,7 @@ def main() -> None:
             "parents": [],
         },
         "run": {
+            "run_id": f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}",
             "description": "",
             "argv": sys.argv,
             "criterion": {"key": "metrics.run.val_miou", "mode": "max"},
@@ -542,6 +577,20 @@ def main() -> None:
         dataset["train"].num_rows // config.batch_size
     )
     meta["hp"]["config"] = vars(config)
+    tracker_hparams = {
+        "run": {
+            "run_id": meta["run"]["run_id"],
+            "description": meta["run"]["description"],
+            "argv": meta["run"]["argv"],
+            "git": meta["run"]["git"],
+            "slurm": meta["run"]["slurm"],
+        },
+        "checkpoint": meta["checkpoint"],
+        "hp": meta["hp"],
+    }
+    tracker = build_tracker(
+        meta["tracker"], run_id=meta["run"]["run_id"], hparams=tracker_hparams
+    )
 
     model = build_fused_model(meta["hp"]["model"])
 
@@ -601,6 +650,7 @@ def main() -> None:
         frozen_modules=frozen_modules,
         optimizer=optimizer,
         scheduler=scheduler,
+        tracker=tracker,
         device=device,
         config=config,
         dataset=dataset,
@@ -631,10 +681,22 @@ def main() -> None:
             compression=DEFAULT_EVAL_COMPRESSION,
         )
         val_miou_at_past_ticks.append(miou)
-    print(f"val_miou_at_past_ticks: {val_miou_at_past_ticks}")
 
     meta["metrics"]["run"]["val_miou_at_past_ticks"] = val_miou_at_past_ticks
     meta["run"]["utc_end_time"] = datetime.now(timezone.utc).isoformat()
+
+    tracker.log_metrics(
+        {
+            "epoch": state.last_epoch_idx + 1,
+            **{
+                f"val/final/miou_at_past_ticks/{i}": val
+                for i, val in enumerate(val_miou_at_past_ticks)
+            },
+        },
+        step=state.global_step,
+    )
+
+    tracker.close()
 
     save_checkpoint(meta=meta, runtime=runtime, state=state)
 
