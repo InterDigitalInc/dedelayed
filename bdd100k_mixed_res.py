@@ -1,18 +1,6 @@
-# This code is provided solely as supplementary material for the anonymized review of
-# CVPR 2025 submission # REDACTED
-#
-# It is intended exclusively for the purpose of verifying the reproducibility of the
-# results reported in the submission during the double-blind peer review process.
-#
-# Distribution, reproduction, modification, or any other use beyond the CVPR 2025
-# review process is strictly prohibited without prior written permission from the
-# copyright holder.
-#
-# All intellectual property rights are reserved by the copyright owner.
-# No license is granted. Provided "as is" without warranty of any kind, express or implied,
-# including but not limited to warranties of merchantability, fitness for a particular purpose, # or non-infringement.
-#
-# For the anonymized review process only.
+# Copyright (c) 2026, InterDigital
+# All rights reserved.
+# See LICENSE under the root folder.
 
 
 # In[1]:
@@ -307,4 +295,3 @@ N = 501; plt.semilogy(np.convolve(train_losses,N*[1/N], mode='valid'))
 
 plt.plot(valid_miou)
 print(valid_miou[-1])
-

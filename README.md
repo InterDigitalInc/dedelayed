@@ -1,15 +1,3 @@
-# Disclaimer
-
-This code is provided solely as supplementary material for the anonymized review of CVPR 2025 submission REDACTED
-
-It is intended exclusively for the purpose of verifying the reproducibility of the results reported in the submission during the double-blind peer review process.
-
-Distribution, reproduction, modification, or any other use beyond the CVPR 2025 review process is strictly prohibited without prior written permission from the copyright holder.
-
-All intellectual property rights are reserved by the copyright owner. No license is granted. Provided "as is" without warranty of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, # or non-infringement.
-
-For the anonymized review process only.
-
 # Dedelayed
 
 This directory contains Python code files provided as supplementary material to verify the reproducibility of the results reported in the submission. These files implement the models and training/evaluation procedures described in the paper.
