@@ -36,9 +36,9 @@ from dedelayed.registry import MODELS
 # model_name = "dedelayed_v1_efficientvitl1_mstransformer2d"  # used in CVPR 2026 paper
 # model_name = "dedelayed_v1_efficientvitl1_efficientvitb0"  # finetuned on pre-trained MIT checkpoints
 
-remote_model = MODELS["{model_name}_remote"]()
-local_model = MODELS["{model_name}_local"]()
-model = MODELS["{model_name}"](
+remote_model = MODELS[f"{model_name}_remote"]()
+local_model = MODELS[f"{model_name}_local"]()
+model = MODELS[f"{model_name}"](
     remote_model=remote_model,
     local_model=local_model,
 )
