@@ -30,7 +30,9 @@ from torchvision.transforms.v2 import Resize
 from torchvision.transforms.v2.functional import pil_to_tensor
 from tqdm.auto import tqdm
 
+from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
+from dedelayed.utils.utils import cache_by_id
 
 Config = SimpleNamespace
 
@@ -139,14 +141,14 @@ def collate_train(batch, *, config: Config):
     target_batch = []
 
     for sample in batch:
+        decode = cache_by_id(decode_image)
         x_remote_i, x_local_i, target_i = augment(
             x_remote_src=[
-                sample[f"{config.compression_level}_{i}"] for i in ts.x_remote
+                decode(sample[f"{config.compression_level}_{i}"]) for i in ts.x_remote
             ],
-            x_local_src=[sample[f"near_lossless_{ts.x_local}"]],
-            target_src=[sample[f"label_{ts.target}"]],
+            x_local_src=[decode(sample[f"near_lossless_{ts.x_local}"])],
+            target_src=[decode(sample[f"label_{ts.target}"])],
         )
-
         x_remote_batch.append(x_remote_i)
         x_local_batch.append(x_local_i)
         target_batch.append(target_i)
@@ -235,17 +237,18 @@ def collate_eval(
     assert len(batch) == 1
     sample = batch[0]
     assert isinstance(sample, dict)
+    decode = cache_by_id(decode_image)
     idx_eval_frame = config.idx_eval_frame
     x_remote, x_local = preprocess_eval(
         config=config,
         x_remote_src=[
-            sample[f"original_{idx_eval_frame - past_ticks_true - k}"]
+            decode(sample[f"original_{idx_eval_frame - past_ticks_true - k}"])
             for k in reversed(range(X_REMOTE_LEN))
         ],
-        x_local_src=[sample[f"original_{idx_eval_frame}"]],
+        x_local_src=[decode(sample[f"original_{idx_eval_frame}"])],
         compression=compression,
     )
-    gt = pil_to_tensor(sample[f"label_hq_{idx_eval_frame}"]).squeeze(0)
+    gt = pil_to_tensor(decode(sample[f"label_hq_{idx_eval_frame}"])).squeeze(0)
     x_remote = x_remote.unsqueeze(0)
     x_local = x_local.unsqueeze(0)
     gt = gt.unsqueeze(0)
@@ -528,7 +531,7 @@ def main() -> None:
 
     dataset = datasets.DatasetDict(
         {
-            key: datasets.load_dataset(value["path"], split=value["split"])
+            key: load_dataset(value["path"], split=value["split"])
             for key, value in meta["hp"]["dataset"].items()
         }
     )
