@@ -278,7 +278,9 @@ def evaluate(
         batch_size=1,
         shuffle=False,
         drop_last=False,
-        num_workers=config.num_workers,
+        num_workers=config.num_workers
+        if config.num_workers is not None
+        else len(os.sched_getaffinity(0)),
         collate_fn=functools.partial(
             collate_eval,
             config=config,
@@ -337,6 +339,7 @@ class TrainRuntime:
     device: str
     config: Config
     dataset: datasets.DatasetDict
+    dataloader: dict[str, torch.utils.data.DataLoader]
 
 
 @dataclass
@@ -354,17 +357,8 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
     for frozen_module in runtime.frozen_modules:
         frozen_module.eval()
 
-    dataloader_train = torch.utils.data.DataLoader(
-        runtime.dataset["train"],  # type: ignore[arg-type]
-        batch_size=runtime.config.batch_size,
-        num_workers=runtime.config.num_workers,
-        drop_last=True,
-        shuffle=True,
-        collate_fn=functools.partial(collate_train, config=runtime.config),
-    )
-
     train_bar = tqdm(
-        dataloader_train,
+        runtime.dataloader["train"],
         desc=f"train {state.last_epoch_idx + 1}/{runtime.config.epochs}",
         leave=False,
     )
@@ -489,7 +483,7 @@ def main() -> None:
                 "max_lr": 1e-4,
                 "min_lr": 1e-8,
                 "lr_pow": 2,
-                "num_workers": len(os.sched_getaffinity(0)),
+                "num_workers": None,
                 "idx_eval_frame": 14,
             },
             "dataset": {
@@ -564,6 +558,22 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda i_step: raised_cosine_scheduler(i_step, config)
     )
+    dataloader = {
+        "train": torch.utils.data.DataLoader(
+            dataset["train"],  # type: ignore[arg-type]
+            batch_size=config.batch_size,
+            num_workers=(
+                config.num_workers
+                if config.num_workers is not None
+                else len(os.sched_getaffinity(0))
+            ),
+            drop_last=True,
+            shuffle=True,
+            collate_fn=functools.partial(collate_train, config=config),
+            persistent_workers=True,
+        )
+    }
+
     runtime = TrainRuntime(
         model=model,
         frozen_modules=frozen_modules,
@@ -572,6 +582,7 @@ def main() -> None:
         device=device,
         config=config,
         dataset=dataset,
+        dataloader=dataloader,
     )
     state = TrainState(
         learning_rates=[optimizer.param_groups[0]["lr"]],
