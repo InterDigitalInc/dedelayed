@@ -10,7 +10,7 @@ import einops
 import torch.nn.functional as F
 from torch import Tensor
 
-from dedelayed.data.normalization import ImageNormalizationKind, renormalize
+from dedelayed.functional.normalization import ImageNormalizationKind, renormalize
 from dedelayed.layers.splitvid_v10 import PostpoolBlock, PrepoolBlock
 from dedelayed.models.backbones.evit_vd import EfficientViTSeg3D
 from dedelayed.registry import register_model
