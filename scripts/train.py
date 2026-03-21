@@ -78,7 +78,7 @@ def augment(
                         interpolation=PIL.Image.Resampling.BILINEAR,
                     ),
                 ],
-                p=0.8,
+                p=0.1,
             ),
             T.RandomResizedCrop(
                 size=(h, w),
