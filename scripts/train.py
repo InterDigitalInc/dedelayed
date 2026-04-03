@@ -546,6 +546,15 @@ def main() -> None:
     frozen_modules: list[torch.nn.Module] = [
         model.remote_model.main_model.image_model,
         model.local_model.image_model,
+        *[
+            submodule
+            for module in [
+                model.remote_model.main_model.image_model,
+                model.local_model.image_model,
+            ]
+            for submodule in module.modules()
+            if isinstance(submodule, torch.nn.modules.batchnorm._BatchNorm)
+        ],
     ]
     for frozen_module in frozen_modules:
         for param in frozen_module.parameters():
