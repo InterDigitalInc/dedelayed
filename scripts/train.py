@@ -542,7 +542,8 @@ def main() -> None:
     model = build_fused_model(meta["hp"]["model"])
 
     model.to(device)
-    model.compile(mode="max-autotune")
+    model.remote_model.compile(mode="max-autotune")
+    model.local_model.compile(mode="max-autotune")
 
     for module in model.modules():
         if hasattr(module, "drop_path"):
