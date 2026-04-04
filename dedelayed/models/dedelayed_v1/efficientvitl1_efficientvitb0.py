@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from typing import Literal, cast
 
 import einops
+import torch
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -115,6 +116,12 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(Dedelayed_v1_Local):
         self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.image_model = create_efficientvit_seg_model(name, pretrained=True)
 
+    def downlink_features_shape(
+        self, x_local_size: tuple[int, int]
+    ) -> tuple[int, int, int]:
+        h_local, w_local = x_local_size
+        return (32, h_local // 8, w_local // 8)
+
     def forward(self, x_local: Tensor, *, downlink_features: Tensor | None = None):
         from efficientvit.models.nn.ops import OpSequential
         from efficientvit.models.utils.list import list_sum
@@ -168,15 +175,30 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0(Dedelayed_v1_Fused):
         super().__init__()
         self.remote_model = remote_model
         self.local_model = local_model
+        self.drop_downlink_features_prob = 0.0
 
     def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: Tensor):
-        out_remote = self.remote_model(
-            x_remote,
-            past_ticks=past_ticks,
-            x_local_size=x_local.shape[-2:],
+        drop_downlink_features = self.training and (
+            torch.rand((), device=x_local.device).item()
+            < self.drop_downlink_features_prob
         )
 
-        downlink_features = out_remote["downlink_features"].clone()
+        if drop_downlink_features:
+            downlink_features = torch.zeros(
+                (
+                    x_local.shape[0],
+                    *self.local_model.downlink_features_shape(x_local.shape[-2:]),
+                ),
+                device=x_local.device,
+                dtype=x_local.dtype,
+            )
+        else:
+            out_remote = self.remote_model(
+                x_remote,
+                past_ticks=past_ticks,
+                x_local_size=x_local.shape[-2:],
+            )
+            downlink_features = out_remote["downlink_features"].clone()
 
         out_local = self.local_model(x_local, downlink_features=downlink_features)
 

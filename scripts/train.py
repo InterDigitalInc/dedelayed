@@ -489,6 +489,7 @@ def main() -> None:
                 "ips": 32,
                 "ops": 8,
                 "drop_path": 0.1,
+                "drop_downlink_features_prob": 0.1667,
                 "max_lr": 1e-4,
                 "min_lr": 1e-8,
                 "lr_pow": 2,
@@ -551,6 +552,8 @@ def main() -> None:
     for module in model.modules():
         if hasattr(module, "drop_path"):
             module.drop_path = config.drop_path
+
+    model.drop_downlink_features_prob = config.drop_downlink_features_prob
 
     frozen_modules: list[torch.nn.Module] = [
         model.remote_model.main_model.image_model,
