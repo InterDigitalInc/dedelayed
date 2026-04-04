@@ -438,8 +438,8 @@ def main() -> None:
         "checkpoint": {
             "dir": "checkpoints/",
             "name": (
-                "{run[slurm][job_id]}"
-                ".dedelayed_v1.r_evitl1cs-l_evitb0cs"
+                "{run[run_id]}."
+                "{hp[model][name]}"
                 ".r{hp[config][remote_size]}_l{hp[config][local_size]}_ft_bdd100k_e{hp[config][epochs]}"
                 ".pth"
             ),
