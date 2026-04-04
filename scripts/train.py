@@ -320,20 +320,46 @@ def save_checkpoint(*, meta: dict, runtime: TrainRuntime, state: TrainState) -> 
     save_path = save_dir / meta["checkpoint"]["name"]
     ckpt = {
         "meta": meta,
-        "logs": {
-            "schema": "dedelayed.checkpoint_logs.v1",
-            "step": {
-                "train/loss": torch.tensor(state.train_losses, dtype=torch.float32),
-                "train/lr": torch.tensor(state.learning_rates, dtype=torch.float32),
-                "train/grad_norm": torch.tensor(state.grad_norms, dtype=torch.float32),
-            },
-            "epoch": {
-                "val/miou": torch.tensor(state.valid_mious, dtype=torch.float32),
-            },
-        },
         "state_dict": runtime.model.state_dict(),
+        "optimizer_state_dict": runtime.optimizer.state_dict(),
+        "scheduler_state_dict": runtime.scheduler.state_dict(),
+        "train_state": {
+            "last_epoch_idx": state.last_epoch_idx,
+            "global_step": state.global_step,
+            "learning_rates": torch.tensor(state.learning_rates, dtype=torch.float32),
+            "train_losses": torch.tensor(state.train_losses, dtype=torch.float32),
+            "grad_norms": torch.tensor(state.grad_norms, dtype=torch.float32),
+            "valid_mious": torch.tensor(state.valid_mious, dtype=torch.float32),
+        },
     }
     torch.save(ckpt, str(save_path))
+
+
+def restore_training_state(
+    *,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LambdaLR,
+    ckpt: dict | None,
+) -> TrainState:
+    ckpt = ckpt or {"train_state": {}}
+    train_state = ckpt["train_state"]
+
+    def to_list(x) -> list:
+        return x.tolist() if isinstance(x, torch.Tensor) else list(x)
+
+    state = TrainState(
+        last_epoch_idx=int(train_state.get("last_epoch_idx", -1)),
+        global_step=int(train_state.get("global_step", 0)),
+        learning_rates=to_list(train_state.get("learning_rates", [])),
+        train_losses=to_list(train_state.get("train_losses", [])),
+        grad_norms=to_list(train_state.get("grad_norms", [])),
+        valid_mious=to_list(train_state.get("valid_mious", [])),
+    )
+    if "optimizer_state_dict" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+    if "scheduler_state_dict" in ckpt:
+        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+    return state
 
 
 @dataclass
@@ -431,8 +457,6 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
     )
 
     meta["metrics"]["run"]["val_miou"] = miou
-    meta["run"]["progress"]["epochs_completed"] = state.last_epoch_idx + 1
-    meta["run"]["progress"]["steps_completed"] = state.global_step
 
     save_checkpoint(meta=meta, runtime=runtime, state=state)
 
@@ -553,10 +577,6 @@ def main() -> None:
                 ).rstrip("_"),
                 "job_name": os.environ.get("SLURM_JOB_NAME", ""),
             },
-            "progress": {
-                "epochs_completed": 0,
-                "steps_completed": 0,
-            },
             "utc_start_time": datetime.now(timezone.utc).isoformat(),
             "utc_end_time": None,
         },
@@ -616,6 +636,13 @@ def main() -> None:
     meta["checkpoint"]["name"] = meta["checkpoint"]["name"].format_map(meta)
     print(f"Checkpoint name: {meta['checkpoint']['name']}")
 
+    ckpt_path = Path(meta["checkpoint"]["dir"]) / meta["checkpoint"]["name"]
+    resume_ckpt = None
+    if ckpt_path.exists():
+        resume_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        meta = resume_ckpt["meta"]
+        print(f"Resuming from checkpoint: {ckpt_path}")
+
     dataset = datasets.DatasetDict(
         {
             key: load_dataset(value["path"], split=value["split"])
@@ -643,7 +670,7 @@ def main() -> None:
         meta["tracker"], run_id=meta["run"]["run_id"], hparams=tracker_hparams
     )
 
-    model, frozen_modules = init_model(meta, config, device, None)
+    model, frozen_modules = init_model(meta, config, device, resume_ckpt)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = Adan(learnable_params, lr=1.0, caution=True)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -676,11 +703,19 @@ def main() -> None:
         dataset=dataset,
         dataloader=dataloader,
     )
-    state = TrainState(
-        learning_rates=[optimizer.param_groups[0]["lr"]],
+    state = restore_training_state(
+        optimizer=optimizer,
+        scheduler=scheduler,
+        ckpt=resume_ckpt,
     )
 
-    epoch_bar = tqdm(range(runtime.config.epochs), desc="epoch", leave=True)
+    epoch_bar = tqdm(
+        range(state.last_epoch_idx + 1, runtime.config.epochs),
+        total=runtime.config.epochs,
+        initial=state.last_epoch_idx + 1,
+        desc="epoch",
+        leave=True,
+    )
     for epoch_idx in epoch_bar:
         state.last_epoch_idx = epoch_idx
         run_epoch(runtime=runtime, state=state, meta=meta)
