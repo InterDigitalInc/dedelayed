@@ -34,7 +34,7 @@ from tqdm.auto import tqdm
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
 from dedelayed.utils.trackers import Tracker, build_tracker
-from dedelayed.utils.utils import cache_by_id
+from dedelayed.utils.utils import cache_by_id, get_attr_by_key
 
 Config = SimpleNamespace
 
@@ -446,6 +446,54 @@ def build_fused_model(model_cfg: dict) -> torch.nn.Module:
     )
 
 
+def init_model(
+    meta: dict, config: Config, device: str, resume_ckpt: dict | None
+) -> tuple[torch.nn.Module, list[torch.nn.Module]]:
+    model = build_fused_model(meta["hp"]["model"])
+
+    if resume_ckpt is not None:
+        model.load_state_dict(resume_ckpt["state_dict"])
+    else:
+        for parent in meta["checkpoint"]["parents"]:
+            ckpt_path = Path(meta["checkpoint"]["dir"]) / parent["path"]
+            parent_ckpt = torch.load(ckpt_path, map_location="cpu")
+            submodule = get_attr_by_key(model, parent["key"])
+            submodule.load_state_dict(parent_ckpt["state_dict"], strict=True)
+
+    model.to(device)
+
+    for module in model.modules():
+        if hasattr(module, "drop_path"):
+            module.drop_path = config.drop_path
+
+    model.drop_downlink_features_prob = config.drop_downlink_features_prob
+
+    frozen_modules: list[torch.nn.Module] = [
+        model.remote_model.main_model.image_model,
+        # model.local_model.image_model,
+        *[
+            submodule
+            for module in [
+                model.remote_model.main_model.image_model,
+                model.local_model.image_model,
+            ]
+            for submodule in module.modules()
+            if isinstance(submodule, torch.nn.modules.batchnorm._BatchNorm)
+        ],
+    ]
+    for frozen_module in frozen_modules:
+        for param in frozen_module.parameters():
+            param.requires_grad_(False)
+    for param_name, param in model.named_parameters():
+        icon = "🔥 " if param.requires_grad else "❄️ "
+        print(f"{icon} {str(list(param.shape)):<24} {param_name}")
+
+    model.remote_model.compile(mode="max-autotune")
+    model.local_model.compile(mode="max-autotune")
+
+    return model, frozen_modules
+
+
 def main() -> None:
     device = "cuda"
 
@@ -595,38 +643,7 @@ def main() -> None:
         meta["tracker"], run_id=meta["run"]["run_id"], hparams=tracker_hparams
     )
 
-    model = build_fused_model(meta["hp"]["model"])
-
-    model.to(device)
-    model.remote_model.compile(mode="max-autotune")
-    model.local_model.compile(mode="max-autotune")
-
-    for module in model.modules():
-        if hasattr(module, "drop_path"):
-            module.drop_path = config.drop_path
-
-    model.drop_downlink_features_prob = config.drop_downlink_features_prob
-
-    frozen_modules: list[torch.nn.Module] = [
-        model.remote_model.main_model.image_model,
-        model.local_model.image_model,
-        *[
-            submodule
-            for module in [
-                model.remote_model.main_model.image_model,
-                model.local_model.image_model,
-            ]
-            for submodule in module.modules()
-            if isinstance(submodule, torch.nn.modules.batchnorm._BatchNorm)
-        ],
-    ]
-    for frozen_module in frozen_modules:
-        for param in frozen_module.parameters():
-            param.requires_grad_(False)
-    for param_name, param in model.named_parameters():
-        icon = "🔥 " if param.requires_grad else "❄️ "
-        print(f"{icon} {str(list(param.shape)):<24} {param_name}")
-
+    model, frozen_modules = init_model(meta, config, device, None)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = Adan(learnable_params, lr=1.0, caution=True)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
