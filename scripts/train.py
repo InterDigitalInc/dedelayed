@@ -49,10 +49,6 @@ def normalize_uint8(x: torch.Tensor) -> torch.Tensor:
     return x / 255.0
 
 
-def resize_logits(logits: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
-    return Resize(size, interpolation=PIL.Image.Resampling.BILINEAR)(logits)
-
-
 def raised_cosine_scheduler(i_step: int, config: Config) -> float:
     t = i_step / config.total_steps
     return (config.max_lr - config.min_lr) * (
@@ -294,7 +290,8 @@ def evaluate(
         gt = gt.to(device)
         out = model(x_local[:, :, 0], x_remote, past_ticks)
         gt_h, gt_w = gt.shape[-2:]
-        logits = resize_logits(out["seg_logits"], (gt_h, gt_w))
+        logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
+        logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
         pred = logits.argmax(dim=1).to(torch.uint8)
         metric.update(pred, gt)
     miou = metric.compute().item()
@@ -369,7 +366,10 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         seg_label = seg_label.to(runtime.device).to(torch.long)
 
         out = runtime.model(x_local, x_remote, past_ticks)
-        logits = resize_logits(out["seg_logits"], seg_label.shape[-2:])
+        logits_interp = PIL.Image.Resampling[runtime.config.seg_logits_interpolation]
+        logits = Resize(seg_label.shape[-2:], interpolation=logits_interp)(
+            out["seg_logits"]
+        )
         loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)(logits, seg_label)
         total_loss = loss_ce
 
@@ -475,6 +475,7 @@ def main() -> None:
                 "local_size": 480,
                 "remote_size": 720,
                 "compression_level": "near_lossless",
+                "seg_logits_interpolation": "BILINEAR",
                 "min_delay": 0,
                 "max_delay": 5,
                 "ips": 32,
