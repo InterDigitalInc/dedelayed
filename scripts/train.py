@@ -291,7 +291,7 @@ def save_checkpoint(*, meta: dict, runtime: TrainRuntime, state: TrainState) -> 
         "optimizer_state_dict": runtime.optimizer.state_dict(),
         "scheduler_state_dict": runtime.scheduler.state_dict(),
         "train_state": {
-            "last_epoch_idx": state.last_epoch_idx,
+            "epoch": state.epoch,
             "global_step": state.global_step,
             "learning_rates": torch.tensor(state.learning_rates, dtype=torch.float32),
             "train_losses": torch.tensor(state.train_losses, dtype=torch.float32),
@@ -315,7 +315,7 @@ def restore_training_state(
         return x.tolist() if isinstance(x, torch.Tensor) else list(x)
 
     state = TrainState(
-        last_epoch_idx=int(train_state.get("last_epoch_idx", -1)),
+        epoch=int(train_state.get("epoch", 0)),
         global_step=int(train_state.get("global_step", 0)),
         learning_rates=to_list(train_state.get("learning_rates", [])),
         train_losses=to_list(train_state.get("train_losses", [])),
@@ -344,12 +344,12 @@ class TrainRuntime:
 
 @dataclass
 class TrainState:
+    epoch: int = 0
+    global_step: int = 0
     learning_rates: list[float] = field(default_factory=list)
     train_losses: list[float] = field(default_factory=list)
     grad_norms: list[float] = field(default_factory=list)
     valid_mious: list[float] = field(default_factory=list)
-    last_epoch_idx: int = -1
-    global_step: int = 0
 
 
 def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
@@ -361,7 +361,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
 
     train_bar = tqdm(
         runtime.dataloader["train"],
-        desc=f"train {state.last_epoch_idx + 1}/{runtime.config.epochs}",
+        desc=f"train {state.epoch + 1}/{runtime.config.epochs}",
         leave=False,
     )
 
@@ -417,7 +417,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
     state.valid_mious.append(miou)
     runtime.tracker.log_metrics(
         {
-            "epoch": state.last_epoch_idx + 1,
+            "epoch": state.epoch + 1,
             "val/epoch/miou": state.valid_mious[-1],
         },
         step=state.global_step,
@@ -677,20 +677,20 @@ def main() -> None:
     )
 
     epoch_bar = tqdm(
-        range(state.last_epoch_idx + 1, runtime.config.epochs),
+        range(state.epoch, runtime.config.epochs),
         total=runtime.config.epochs,
-        initial=state.last_epoch_idx + 1,
+        initial=state.epoch,
         desc="epoch",
         leave=True,
     )
-    for epoch_idx in epoch_bar:
-        state.last_epoch_idx = epoch_idx
+    for epoch in epoch_bar:
         run_epoch(runtime=runtime, state=state, meta=meta)
         epoch_bar.set_postfix(
             loss=f"{state.train_losses[-1]:.3g}",
             miou=f"{state.valid_mious[-1]:.3g}",
             lr=f"{state.learning_rates[-1]:.2g}",
         )
+        state.epoch = epoch + 1
 
     val_miou_at_past_ticks = []
     for past_ticks in range(6):
@@ -709,7 +709,7 @@ def main() -> None:
 
     tracker.log_metrics(
         {
-            "epoch": state.last_epoch_idx + 1,
+            "epoch": state.epoch,
             **{
                 f"val/final/miou_at_past_ticks/{i}": val
                 for i, val in enumerate(val_miou_at_past_ticks)
