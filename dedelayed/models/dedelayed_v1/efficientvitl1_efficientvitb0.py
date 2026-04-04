@@ -15,9 +15,11 @@ from dedelayed.layers.splitvid_v10 import PostpoolBlock, PrepoolBlock
 from dedelayed.models.backbones.evit_vd import EfficientViTSeg3D
 from dedelayed.registry import register_model
 
+from .base import Dedelayed_v1_Fused, Dedelayed_v1_Local, Dedelayed_v1_Remote
+
 
 @register_model("dedelayed_v1_efficientvitl1_efficientvitb0_remote")
-class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
+class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(Dedelayed_v1_Remote):
     def __init__(
         self,
         name="efficientvit-seg-l1-cityscapes",
@@ -50,7 +52,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
         *,
         z_remote: Tensor | None = None,
         x_local_size: tuple[int, int],
-        past_ticks: int = 0,
+        past_ticks: Tensor,
     ):
         H_local, W_local = x_local_size
         output_size = (H_local // 8, W_local // 8)
@@ -90,7 +92,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(nn.Module):
 
 
 @register_model("dedelayed_v1_efficientvitl1_efficientvitb0_local")
-class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
+class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(Dedelayed_v1_Local):
     def __init__(
         self,
         name="efficientvit-seg-b0-cityscapes",
@@ -149,7 +151,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local(nn.Module):
 
 
 @register_model("dedelayed_v1_efficientvitl1_efficientvitb0")
-class Dedelayed_v1_EfficientViTL1_EfficientViTB0(nn.Module):
+class Dedelayed_v1_EfficientViTL1_EfficientViTB0(Dedelayed_v1_Fused):
     def __init__(
         self,
         remote_model: Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote,
@@ -159,7 +161,7 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0(nn.Module):
         self.remote_model = remote_model
         self.local_model = local_model
 
-    def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: int = 0):
+    def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: Tensor):
         out_remote = self.remote_model(
             x_remote,
             past_ticks=past_ticks,

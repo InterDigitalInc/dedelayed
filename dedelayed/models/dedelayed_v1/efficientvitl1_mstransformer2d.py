@@ -14,9 +14,11 @@ from dedelayed.models.backbones.evit_vd import EfficientViTSeg3D
 from dedelayed.models.backbones.mstransformer2d import MSTransformer2D
 from dedelayed.registry import register_model
 
+from .base import Dedelayed_v1_Fused, Dedelayed_v1_Local, Dedelayed_v1_Remote
+
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_remote")
-class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
+class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
     def __init__(
         self,
         *,
@@ -36,7 +38,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
         *,
         z_remote: Tensor | None = None,
         x_local_size: tuple[int, int],
-        past_ticks: int = 0,
+        past_ticks: Tensor,
     ):
         H_local, W_local = x_local_size
         output_size = (H_local // 8, W_local // 8)
@@ -75,7 +77,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
 
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_local")
-class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
+class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(Dedelayed_v1_Local):
     def __init__(
         self,
         cls_classes=1000,
@@ -111,7 +113,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Local(nn.Module):
 
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d")
-class Dedelayed_v1_EfficientViTL1_MSTransformer2D(nn.Module):
+class Dedelayed_v1_EfficientViTL1_MSTransformer2D(Dedelayed_v1_Fused):
     def __init__(
         self,
         remote_model: Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote,
@@ -121,7 +123,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D(nn.Module):
         self.remote_model = remote_model
         self.local_model = local_model
 
-    def forward(self, x_local, x_remote, *, past_ticks: int = 0):
+    def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: Tensor):
         out_remote = self.remote_model(
             x_remote,
             past_ticks=past_ticks,
