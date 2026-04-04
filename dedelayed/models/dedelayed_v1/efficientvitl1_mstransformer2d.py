@@ -140,9 +140,9 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D(Dedelayed_v1_Fused):
             x_local_size=x_local.shape[-2:],
         )
 
-        out_local = self.local_model(
-            x_local, downlink_features=out_remote["downlink_features"]
-        )
+        downlink_features = out_remote["downlink_features"].clone()
+
+        out_local = self.local_model(x_local, downlink_features=downlink_features)
 
         seg_logits = out_local["seg_logits"]
 
