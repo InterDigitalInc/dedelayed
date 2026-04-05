@@ -290,7 +290,7 @@ def save_checkpoint(*, runtime: TrainRuntime, state: TrainState) -> None:
     save_path = save_dir / cfg.checkpoint.name
     ckpt = {
         "meta": meta,
-        "state_dict": runtime.model.state_dict(),
+        "model_state_dict": runtime.model.state_dict(),
         "optimizer_state_dict": runtime.optimizer.state_dict(),
         "scheduler_state_dict": runtime.scheduler.state_dict(),
         "train_state": {
@@ -446,13 +446,13 @@ def init_model(
     model = build_fused_model(cfg.hp.model)
 
     if resume_ckpt is not None:
-        model.load_state_dict(resume_ckpt["state_dict"])
+        model.load_state_dict(resume_ckpt["model_state_dict"])
     else:
         for parent in cfg.checkpoint.parents:
             ckpt_path = Path(cfg.checkpoint.dir) / parent.path
             parent_ckpt = torch.load(ckpt_path, map_location="cpu")
             submodule = get_attr_by_key(model, parent.key)
-            submodule.load_state_dict(parent_ckpt["state_dict"], strict=True)
+            submodule.load_state_dict(parent_ckpt["model_state_dict"], strict=True)
 
     model.to(device)
 
