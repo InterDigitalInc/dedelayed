@@ -33,7 +33,7 @@ from tqdm.auto import tqdm
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
 from dedelayed.utils.git import commit_version
-from dedelayed.utils.optim import get_raised_cosine_schedule
+from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import (
     compress_decompress,
     compute_size,
@@ -558,7 +558,7 @@ def main(cfg: DictConfig) -> None:
     model, frozen_modules = init_model(cfg, device, resume_ckpt)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = Adan(learnable_params, lr=cfg.hp.optim.max_lr, caution=True)
-    scheduler = get_raised_cosine_schedule(
+    scheduler = RaisedCosineLR(
         optimizer,
         num_training_steps=config.epochs
         * (dataset["train"].num_rows // config.batch_size),

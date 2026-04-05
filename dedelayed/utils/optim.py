@@ -9,14 +9,19 @@ import math
 import torch
 
 
-def get_raised_cosine_schedule(
-    optimizer: torch.optim.Optimizer,
-    *,
-    num_training_steps: int,
-    lr_pow: int = 2,
-) -> torch.optim.lr_scheduler.LambdaLR:
-    def lr_lambda(current_step: int) -> float:
-        t = min(current_step / num_training_steps, 1.0)
-        return 1.0 - ((math.cos(math.pi * t)) ** (2 * lr_pow))
+class RaisedCosineLR(torch.optim.lr_scheduler.LambdaLR):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        *,
+        num_training_steps: int,
+        lr_pow: int = 2,
+        last_epoch: int = -1,
+    ) -> None:
+        self.num_training_steps = num_training_steps
+        self.lr_pow = lr_pow
+        super().__init__(optimizer, self._lr_lambda, last_epoch=last_epoch)
 
-    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    def _lr_lambda(self, current_step: int) -> float:
+        t = min(current_step / self.num_training_steps, 1.0)
+        return 1.0 - math.cos(math.pi * t) ** (2 * self.lr_pow)
