@@ -360,6 +360,8 @@ class TrainState:
 
 
 def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
+    log_step_interval = 100
+
     runtime.model.train()
     for frozen_module in runtime.frozen_modules:
         frozen_module.eval()
@@ -396,14 +398,15 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         state.learning_rates.append(runtime.optimizer.param_groups[0]["lr"])
         state.grad_norms.append(float(grad_norm))
         state.global_step += 1
-        runtime.tracker.log_metrics(
-            {
-                "train/step/loss": state.train_losses[-1],
-                "train/step/lr": state.learning_rates[-1],
-                "train/step/grad_norm": state.grad_norms[-1],
-            },
-            step=state.global_step,
-        )
+        if state.global_step % log_step_interval == 0:
+            runtime.tracker.log_metrics(
+                {
+                    "train/step/loss": state.train_losses[-1],
+                    "train/step/lr": state.learning_rates[-1],
+                    "train/step/grad_norm": state.grad_norms[-1],
+                },
+                step=state.global_step,
+            )
 
         train_bar.set_postfix(
             loss=f"{state.train_losses[-1]:.3g}",
