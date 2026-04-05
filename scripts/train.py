@@ -33,6 +33,7 @@ from tqdm.auto import tqdm
 
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
+from dedelayed.utils.optim import get_raised_cosine_schedule
 from dedelayed.utils.trackers import Tracker, build_tracker
 from dedelayed.utils.utils import cache_by_id, get_attr_by_key
 
@@ -51,13 +52,6 @@ def compute_size(h: int, aspect: float, div: int) -> tuple[int, int]:
 
 def normalize_uint8(x: torch.Tensor) -> torch.Tensor:
     return x / 255.0
-
-
-def raised_cosine_scheduler(i_step: int, config: Config) -> float:
-    t = i_step / config.total_steps
-    return (config.max_lr - config.min_lr) * (
-        1 - ((np.cos(np.pi * t)) ** (2 * config.lr_pow))
-    ) + config.min_lr
 
 
 def augment(
@@ -677,9 +671,9 @@ def main() -> None:
 
     model, frozen_modules = init_model(meta, config, device, resume_ckpt)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
-    optimizer = Adan(learnable_params, lr=1.0, caution=True)
-    scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=lambda i_step: raised_cosine_scheduler(i_step, config)
+    optimizer = Adan(learnable_params, lr=config.max_lr, caution=True)
+    scheduler = get_raised_cosine_schedule(
+        optimizer, num_training_steps=config.total_steps, lr_pow=config.lr_pow
     )
     dataloader = {
         "train": torch.utils.data.DataLoader(
