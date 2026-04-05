@@ -540,9 +540,6 @@ def main(cfg: DictConfig) -> None:
     )
 
     config = cfg.hp.config
-    config.total_steps = config.epochs * (
-        dataset["train"].num_rows // config.batch_size
-    )
 
     meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     tracker_hparams = {
@@ -560,9 +557,12 @@ def main(cfg: DictConfig) -> None:
 
     model, frozen_modules = init_model(cfg, device, resume_ckpt)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
-    optimizer = Adan(learnable_params, lr=config.max_lr, caution=True)
+    optimizer = Adan(learnable_params, lr=cfg.hp.optim.max_lr, caution=True)
     scheduler = get_raised_cosine_schedule(
-        optimizer, num_training_steps=config.total_steps, lr_pow=config.lr_pow
+        optimizer,
+        num_training_steps=config.epochs
+        * (dataset["train"].num_rows // config.batch_size),
+        lr_pow=cfg.hp.optim.lr_pow,
     )
     dataloader = {
         "train": torch.utils.data.DataLoader(

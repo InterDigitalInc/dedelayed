@@ -28,10 +28,11 @@ hp:
     ops: 8
     drop_path: 0.1
     drop_downlink_features_prob: 0.1667
-    max_lr: 1e-4
-    min_lr: 1e-8
-    lr_pow: 2
     idx_eval_frame: 14
+
+  optim:
+    max_lr: 1e-4
+    lr_pow: 2
 
   dataset:
     train:
