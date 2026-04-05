@@ -14,6 +14,7 @@ import numpy as np
 import PIL.Image
 import torch
 import yaml
+from omegaconf import open_dict
 from torchvision.transforms.functional import to_pil_image
 
 
@@ -163,6 +164,7 @@ class MLflowTracker(Tracker):
         tracking_uri: str | None = None,
         experiment_name: str,
         run_name: str | None = None,
+        parent_run_id: str | None = None,
     ) -> None:
         import mlflow
 
@@ -170,7 +172,10 @@ class MLflowTracker(Tracker):
         if tracking_uri is not None:
             self.mlflow.set_tracking_uri(tracking_uri)
         self.mlflow.set_experiment(experiment_name)
-        self.run = self.mlflow.start_run(run_name=run_name)
+        self.run = self.mlflow.start_run(
+            run_name=run_name,
+            parent_run_id=parent_run_id,
+        )
 
     def log_hyperparams(self, hparams: dict[str, Any]) -> None:
         flat = _flatten_dict(hparams, sep=".")
@@ -383,6 +388,8 @@ def _build_one_tracker(
                 experiment=experiment,
             )
         )
+        with open_dict(kwargs):
+            kwargs["run_hash"] = tracker.run.hash
         tracker.log_hyperparams(hparams)
         return tracker
 
@@ -393,7 +400,12 @@ def _build_one_tracker(
             ),
             experiment_name=kwargs.get("experiment_name", experiment),
             run_name=kwargs.get("run_name", run_name),
+            parent_run_id=kwargs.get("parent_run_id"),
         )
+        with open_dict(kwargs):
+            kwargs["parent_run_id"] = (
+                kwargs.get("parent_run_id") or tracker.run.info.run_id
+            )
         tracker.log_hyperparams(hparams)
         return tracker
 
@@ -440,6 +452,9 @@ def _build_one_tracker(
                 group=experiment,
             )
         )
+        with open_dict(kwargs):
+            kwargs["name"] = tracker.run.name
+            kwargs["resume"] = "must"
         tracker.log_hyperparams(hparams)
         return tracker
 
@@ -453,6 +468,9 @@ def _build_one_tracker(
                 dir=os.path.join(log_dir, "wandb"),
             )
         )
+        with open_dict(kwargs):
+            kwargs["id"] = tracker.run.id
+            kwargs["resume"] = "must"
         tracker.log_hyperparams(hparams)
         return tracker
 
