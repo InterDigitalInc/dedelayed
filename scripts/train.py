@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import functools
 import getpass
-import io
 import os
 import socket
 import sys
@@ -34,6 +33,11 @@ from tqdm.auto import tqdm
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
 from dedelayed.utils.optim import get_raised_cosine_schedule
+from dedelayed.utils.preprocessing import (
+    compress_decompress,
+    compute_size,
+    normalize_uint8,
+)
 from dedelayed.utils.trackers import Tracker, build_tracker
 from dedelayed.utils.utils import cache_by_id, get_attr_by_key
 
@@ -42,16 +46,6 @@ Config = SimpleNamespace
 DEFAULT_EVAL_COMPRESSION = {"format": "WEBP", "quality": 85, "lossless": False}
 DEFAULT_EVAL_PAST_TICKS = 5
 X_REMOTE_LEN = 4
-
-
-def compute_size(h: int, aspect: float, div: int) -> tuple[int, int]:
-    h = int(h)
-    w = int(aspect * h)
-    return (h // div * div), (w // div * div)
-
-
-def normalize_uint8(x: torch.Tensor) -> torch.Tensor:
-    return x / 255.0
 
 
 def augment(
@@ -168,25 +162,6 @@ def collate_train(batch, *, config: Config):
     # target: [B, H_target, W_target], uint8/int
     # past_ticks: [B], float32 frame offsets
     return x_remote, x_local, target, past_ticks
-
-
-def compress_decompress(
-    frame: PIL.Image.Image, compression: dict | None
-) -> PIL.Image.Image:
-    if compression is None:
-        return frame.copy()
-
-    with io.BytesIO() as buf:
-        frame.save(
-            buf,
-            format=compression["format"],
-            quality=compression["quality"],
-            lossless=compression["lossless"],
-        )
-        buf.seek(0)
-        with PIL.Image.open(buf) as img:
-            img.load()
-            return img.copy()
 
 
 def preprocess_eval(
