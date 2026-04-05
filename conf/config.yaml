@@ -1,0 +1,39 @@
+defaults:
+  - tracker: default
+  - _self_
+
+schema: dedelayed.checkpoint_meta.v1
+
+checkpoint:
+  dir: checkpoints/
+  name: "{run.run_id}.{hp.model.name}.pth"
+  parents: []
+
+run:
+  run_id: null
+  description: ""
+  argv: []
+  criterion:
+    key: null
+    mode: null
+  git:
+    version: null
+  system:
+    hostname: null
+    username: null
+    cwd: null
+    gpu: null
+  slurm:
+    job_id: null
+    job_name: null
+  utc_start_time: null
+  utc_end_time: null
+
+hp:
+  config:
+    num_workers: null
+  dataset: {}
+  model: {}
+
+metrics:
+  run: {}

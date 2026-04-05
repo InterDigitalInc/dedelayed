@@ -12,15 +12,16 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
-from typing import NamedTuple
+from typing import NamedTuple, cast
 from uuid import uuid4
 
 import datasets
 import einops
+import hydra
 import numpy as np
 import PIL.Image
 import torch
+from omegaconf import DictConfig, OmegaConf
 from timm.optim.adan import Adan
 from torchmetrics.classification import JaccardIndex
 from torchvision import tv_tensors
@@ -41,7 +42,7 @@ from dedelayed.utils.preprocessing import (
 from dedelayed.utils.trackers import Tracker, build_tracker
 from dedelayed.utils.utils import cache_by_id, get_attr_by_key
 
-Config = SimpleNamespace
+Config = DictConfig
 
 DEFAULT_EVAL_COMPRESSION = {"format": "WEBP", "quality": 85, "lossless": False}
 DEFAULT_EVAL_PAST_TICKS = 5
@@ -281,10 +282,12 @@ def evaluate(
     return miou
 
 
-def save_checkpoint(*, meta: dict, runtime: TrainRuntime, state: TrainState) -> None:
-    save_dir = Path(meta["checkpoint"]["dir"])
+def save_checkpoint(*, runtime: TrainRuntime, state: TrainState) -> None:
+    cfg = runtime.cfg
+    meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
+    save_dir = Path(cfg.checkpoint.dir)
     save_dir.mkdir(parents=True, exist_ok=True)
-    save_path = save_dir / meta["checkpoint"]["name"]
+    save_path = save_dir / cfg.checkpoint.name
     ckpt = {
         "meta": meta,
         "state_dict": runtime.model.state_dict(),
@@ -337,7 +340,7 @@ class TrainRuntime:
     scheduler: torch.optim.lr_scheduler.LambdaLR
     tracker: Tracker
     device: str
-    config: Config
+    cfg: DictConfig
     dataset: datasets.DatasetDict
     dataloader: dict[str, torch.utils.data.DataLoader]
 
@@ -352,7 +355,8 @@ class TrainState:
     valid_mious: list[float] = field(default_factory=list)
 
 
-def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
+def run_epoch(runtime: TrainRuntime, state: TrainState) -> None:
+    config = runtime.cfg.hp.config
     log_step_interval = 100
 
     runtime.model.train()
@@ -361,7 +365,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
 
     train_bar = tqdm(
         runtime.dataloader["train"],
-        desc=f"train {state.epoch + 1}/{runtime.config.epochs}",
+        desc=f"train {state.epoch + 1}/{config.epochs}",
         leave=False,
     )
 
@@ -372,7 +376,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         past_ticks = past_ticks.to(runtime.device)
 
         out = runtime.model(x_local, x_remote, past_ticks)
-        logits_interp = PIL.Image.Resampling[runtime.config.seg_logits_interpolation]
+        logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
         logits = Resize(seg_label.shape[-2:], interpolation=logits_interp)(
             out["seg_logits"]
         )
@@ -409,7 +413,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
     miou = evaluate(
         model=runtime.model,
         device=runtime.device,
-        config=runtime.config,
+        config=config,
         dataset=runtime.dataset["validation"],
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
         compression=DEFAULT_EVAL_COMPRESSION,
@@ -422,10 +426,9 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, meta: dict) -> None:
         },
         step=state.global_step,
     )
+    runtime.cfg.metrics.run.val_miou = miou
 
-    meta["metrics"]["run"]["val_miou"] = miou
-
-    save_checkpoint(meta=meta, runtime=runtime, state=state)
+    save_checkpoint(runtime=runtime, state=state)
 
 
 def build_fused_model(model_cfg: dict) -> torch.nn.Module:
@@ -438,26 +441,26 @@ def build_fused_model(model_cfg: dict) -> torch.nn.Module:
 
 
 def init_model(
-    meta: dict, config: Config, device: str, resume_ckpt: dict | None
+    cfg: DictConfig, device: str, resume_ckpt: dict | None
 ) -> tuple[torch.nn.Module, list[torch.nn.Module]]:
-    model = build_fused_model(meta["hp"]["model"])
+    model = build_fused_model(cfg.hp.model)
 
     if resume_ckpt is not None:
         model.load_state_dict(resume_ckpt["state_dict"])
     else:
-        for parent in meta["checkpoint"]["parents"]:
-            ckpt_path = Path(meta["checkpoint"]["dir"]) / parent["path"]
+        for parent in cfg.checkpoint.parents:
+            ckpt_path = Path(cfg.checkpoint.dir) / parent.path
             parent_ckpt = torch.load(ckpt_path, map_location="cpu")
-            submodule = get_attr_by_key(model, parent["key"])
+            submodule = get_attr_by_key(model, parent.key)
             submodule.load_state_dict(parent_ckpt["state_dict"], strict=True)
 
     model.to(device)
 
     for module in model.modules():
         if hasattr(module, "drop_path"):
-            module.drop_path = config.drop_path
+            module.drop_path = cfg.hp.config.drop_path
 
-    model.drop_downlink_features_prob = config.drop_downlink_features_prob
+    model.drop_downlink_features_prob = cfg.hp.config.drop_downlink_features_prob
 
     frozen_modules: list[torch.nn.Module] = [
         model.remote_model.main_model.image_model,
@@ -485,7 +488,8 @@ def init_model(
     return model, frozen_modules
 
 
-def main() -> None:
+@hydra.main(version_base=None, config_path="../conf", config_name="config")
+def main(cfg: DictConfig) -> None:
     device = "cuda"
 
     if torch.cuda.is_available():
@@ -494,40 +498,10 @@ def main() -> None:
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.set_float32_matmul_precision("high")
 
-    meta = {
-        "schema": "dedelayed.checkpoint_meta.v1",
-        "tracker": {
-            "project": "dedelayed",
-            "experiment": "default",
-            "run_name": None,
-            "log_dir": "logs/",
-            "backends": [
-                {"name": "console", "kwargs": {}},
-                {"name": "file", "kwargs": {}},
-                {"name": "aim", "kwargs": {}},
-                {"name": "mlflow", "kwargs": {}},
-                # {"name": "neptune", "kwargs": {"workspace": "workspace-name"}},
-                # {"name": "pluto", "kwargs": {}},
-                {"name": "tensorboard", "kwargs": {}},
-                {"name": "trackio", "kwargs": {}},
-                # {"name": "wandb", "kwargs": {}},
-            ],
-        },
-        "checkpoint": {
-            "dir": "checkpoints/",
-            "name": (
-                "{run[run_id]}."
-                "{hp[model][name]}"
-                ".r{hp[config][remote_size]}_l{hp[config][local_size]}_ft_bdd100k_e{hp[config][epochs]}"
-                ".pth"
-            ),
-            "parents": [],
-        },
+    cfg_update = {
         "run": {
             "run_id": f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}",
-            "description": "",
             "argv": sys.argv,
-            "criterion": {"key": "metrics.run.val_miou", "mode": "max"},
             "git": {"version": commit_version()},
             "system": {
                 "hostname": socket.gethostname(),
@@ -547,81 +521,30 @@ def main() -> None:
             "utc_start_time": datetime.now(timezone.utc).isoformat(),
             "utc_end_time": None,
         },
-        "hp": {
-            "config": {
-                "epochs": 10,
-                "batch_size": 1,
-                "num_classes": 19,
-                "aspect": 1.74,
-                "local_size": 480,
-                "remote_size": 720,
-                "compression_level": "near_lossless",
-                "seg_logits_interpolation": "BILINEAR",
-                "min_delay": 0,
-                "max_delay": 5,
-                "ips": 32,
-                "ops": 8,
-                "drop_path": 0.1,
-                "drop_downlink_features_prob": 0.1667,
-                "max_lr": 1e-4,
-                "min_lr": 1e-8,
-                "lr_pow": 2,
-                "num_workers": None,
-                "idx_eval_frame": 14,
-            },
-            "dataset": {
-                "train": {
-                    "path": "/path/to/labeled_video_dataset",
-                    "split": "train",
-                },
-                "validation": {
-                    "path": "/path/to/labeled_video_dataset",
-                    "split": "validation",
-                },
-            },
-            "model": {
-                "name": "dedelayed_v1_efficientvitl1_efficientvitb0",
-                "kwargs": {
-                    "remote_model": {
-                        "temporal_depth": 4,
-                        "temporal_width": 96,
-                        "temporal_expand_ratio": 1,
-                        "temporal_norm_groups": 32,
-                    },
-                    "local_model": {},
-                },
-            },
-        },
-        "metrics": {
-            "run": {
-                "val_miou": None,
-                "val_miou_at_past_ticks": None,
-            }
-        },
     }
+    cfg = cast(DictConfig, OmegaConf.merge(cfg, cfg_update))
 
-    meta["checkpoint"]["name"] = meta["checkpoint"]["name"].format_map(meta)
-    print(f"Checkpoint name: {meta['checkpoint']['name']}")
-
-    ckpt_path = Path(meta["checkpoint"]["dir"]) / meta["checkpoint"]["name"]
+    print(f"Checkpoint name: {cfg.checkpoint.name}")
+    ckpt_path = Path(cfg.checkpoint.dir) / cfg.checkpoint.name
     resume_ckpt = None
     if ckpt_path.exists():
         resume_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-        meta = resume_ckpt["meta"]
+        cfg = cast(DictConfig, OmegaConf.create(resume_ckpt["meta"]))
         print(f"Resuming from checkpoint: {ckpt_path}")
 
     dataset = datasets.DatasetDict(
         {
-            key: load_dataset(value["path"], split=value["split"])
-            for key, value in meta["hp"]["dataset"].items()
+            key: load_dataset(value.path, split=value.split)
+            for key, value in cfg.hp.dataset.items()
         }
     )
 
-    config = SimpleNamespace(**meta["hp"]["config"])
+    config = cfg.hp.config
     config.total_steps = config.epochs * (
         dataset["train"].num_rows // config.batch_size
     )
-    meta["hp"]["config"] = vars(config)
+
+    meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     tracker_hparams = {
         "run": {
             "run_id": meta["run"]["run_id"],
@@ -633,11 +556,9 @@ def main() -> None:
         "checkpoint": meta["checkpoint"],
         "hp": meta["hp"],
     }
-    tracker = build_tracker(
-        meta["tracker"], run_id=meta["run"]["run_id"], hparams=tracker_hparams
-    )
+    tracker = build_tracker(cfg.tracker, run_id=cfg.run.run_id, hparams=tracker_hparams)
 
-    model, frozen_modules = init_model(meta, config, device, resume_ckpt)
+    model, frozen_modules = init_model(cfg, device, resume_ckpt)
     learnable_params = [param for param in model.parameters() if param.requires_grad]
     optimizer = Adan(learnable_params, lr=config.max_lr, caution=True)
     scheduler = get_raised_cosine_schedule(
@@ -666,7 +587,7 @@ def main() -> None:
         scheduler=scheduler,
         tracker=tracker,
         device=device,
-        config=config,
+        cfg=cfg,
         dataset=dataset,
         dataloader=dataloader,
     )
@@ -677,14 +598,14 @@ def main() -> None:
     )
 
     epoch_bar = tqdm(
-        range(state.epoch, runtime.config.epochs),
-        total=runtime.config.epochs,
+        range(state.epoch, config.epochs),
         initial=state.epoch,
+        total=config.epochs,
         desc="epoch",
         leave=True,
     )
     for epoch in epoch_bar:
-        run_epoch(runtime=runtime, state=state, meta=meta)
+        run_epoch(runtime=runtime, state=state)
         epoch_bar.set_postfix(
             loss=f"{state.train_losses[-1]:.3g}",
             miou=f"{state.valid_mious[-1]:.3g}",
@@ -697,15 +618,15 @@ def main() -> None:
         miou = evaluate(
             model=runtime.model,
             device=runtime.device,
-            config=runtime.config,
+            config=config,
             dataset=runtime.dataset["validation"],
             past_ticks=past_ticks,
             compression=DEFAULT_EVAL_COMPRESSION,
         )
         val_miou_at_past_ticks.append(miou)
 
-    meta["metrics"]["run"]["val_miou_at_past_ticks"] = val_miou_at_past_ticks
-    meta["run"]["utc_end_time"] = datetime.now(timezone.utc).isoformat()
+    cfg.metrics.run.val_miou_at_past_ticks = val_miou_at_past_ticks
+    cfg.run.utc_end_time = datetime.now(timezone.utc).isoformat()
 
     tracker.log_metrics(
         {
@@ -720,7 +641,7 @@ def main() -> None:
 
     tracker.close()
 
-    save_checkpoint(meta=meta, runtime=runtime, state=state)
+    save_checkpoint(runtime=runtime, state=state)
 
 
 if __name__ == "__main__":

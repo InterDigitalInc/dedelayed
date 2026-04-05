@@ -1,0 +1,57 @@
+# @package _global_
+
+tracker:
+  experiment: ${hp.model.name}_ft_bdd100k
+
+checkpoint:
+  name: "${run.run_id}.${hp.model.name}.r${hp.config.remote_size}_l${hp.config.local_size}_ft_bdd100k_e${hp.config.epochs}.pth"
+
+run:
+  criterion:
+    key: metrics.run.val_miou
+    mode: max
+
+hp:
+  config:
+    epochs: 10
+    total_steps: null
+    batch_size: 1
+    num_classes: 19
+    aspect: 1.74
+    remote_size: 720
+    local_size: 480
+    compression_level: near_lossless
+    seg_logits_interpolation: BILINEAR
+    min_delay: 0
+    max_delay: 5
+    ips: 32
+    ops: 8
+    drop_path: 0.1
+    drop_downlink_features_prob: 0.1667
+    max_lr: 1e-4
+    min_lr: 1e-8
+    lr_pow: 2
+    idx_eval_frame: 14
+
+  dataset:
+    train:
+      path: /path/to/labeled_video_dataset
+      split: train
+    validation:
+      path: /path/to/labeled_video_dataset
+      split: validation
+
+  model:
+    name: dedelayed_v1_efficientvitl1_efficientvitb0
+    kwargs:
+      remote_model:
+        temporal_depth: 4
+        temporal_width: 96
+        temporal_expand_ratio: 1
+        temporal_norm_groups: 32
+      local_model: {}
+
+metrics:
+  run:
+    val_miou: null
+    val_miou_at_past_ticks: null

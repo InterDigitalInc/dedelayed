@@ -1,0 +1,24 @@
+project: dedelayed
+experiment: default
+run_name: null
+log_dir: logs/
+backends:
+  - name: console
+    kwargs: {}
+  - name: file
+    kwargs: {}
+  - name: aim
+    kwargs: {}
+  - name: mlflow
+    kwargs: {}
+  # - neptune:
+  #   kwargs:
+  #     workspace: workspace-name
+  # - name: pluto
+  #   kwargs: {}
+  - name: tensorboard
+    kwargs: {}
+  - name: trackio
+    kwargs: {}
+  # - name: wandb
+  #   kwargs: {}
