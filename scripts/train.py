@@ -197,14 +197,12 @@ def compress_decompress(
 
 def preprocess_eval(
     *,
-    config: Config,
     x_remote_src: list,
     x_local_src: list,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
     compression: dict | None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    x_remote_size = compute_size(config.remote_size, config.aspect, config.ips)
-    x_local_size = compute_size(config.local_size, config.aspect, config.ips)
-
     x_remote_frames = []
     for frame in x_remote_src:
         remote_frame = compress_decompress(frame, compression)
@@ -232,22 +230,24 @@ def preprocess_eval(
 def collate_eval(
     batch,
     *,
-    config: Config,
     past_ticks_true: int,
+    idx_eval_frame: int,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
     compression: dict | None,
 ):
     assert len(batch) == 1
     sample = batch[0]
     assert isinstance(sample, dict)
     decode = cache_by_id(decode_image)
-    idx_eval_frame = config.idx_eval_frame
     x_remote, x_local = preprocess_eval(
-        config=config,
         x_remote_src=[
             decode(sample[f"original_{idx_eval_frame - past_ticks_true - k}"])
             for k in reversed(range(X_REMOTE_LEN))
         ],
         x_local_src=[decode(sample[f"original_{idx_eval_frame}"])],
+        x_remote_size=x_remote_size,
+        x_local_size=x_local_size,
         compression=compression,
     )
     gt = pil_to_tensor(decode(sample[f"label_hq_{idx_eval_frame}"])).squeeze(0)
@@ -272,7 +272,10 @@ def evaluate(
     past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
     metric = JaccardIndex(
-        task="multiclass", num_classes=19, average="macro", ignore_index=255
+        task="multiclass",
+        num_classes=config.num_classes,
+        average="macro",
+        ignore_index=255,
     ).to(device)
     loader = torch.utils.data.DataLoader(
         dataset,  # type: ignore[arg-type]
@@ -284,8 +287,10 @@ def evaluate(
         else len(os.sched_getaffinity(0)),
         collate_fn=functools.partial(
             collate_eval,
-            config=config,
             past_ticks_true=past_ticks_true,
+            idx_eval_frame=config.idx_eval_frame,
+            x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
+            x_local_size=compute_size(config.local_size, config.aspect, config.ips),
             compression=compression,
         ),
     )
