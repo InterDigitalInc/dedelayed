@@ -3,6 +3,7 @@ defaults:
   - _self_
 
 schema: dedelayed.checkpoint_meta.v1
+debug: false
 
 checkpoint:
   dir: checkpoints/

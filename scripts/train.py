@@ -357,7 +357,7 @@ class TrainState:
 
 def run_epoch(runtime: TrainRuntime, state: TrainState) -> None:
     config = runtime.cfg.hp.config
-    log_step_interval = 100
+    log_step_interval = 1 if runtime.cfg.debug else 100
 
     runtime.model.train()
     for frozen_module in runtime.frozen_modules:
@@ -540,6 +540,12 @@ def main(cfg: DictConfig) -> None:
     )
 
     config = cfg.hp.config
+
+    if cfg.debug:
+        config.epochs = 3
+        n_debug = 3 * config.batch_size
+        dataset["train"] = dataset["train"].select(range(n_debug))
+        dataset["validation"] = dataset["validation"].select(range(n_debug))
 
     meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     tracker_hparams = {
