@@ -12,7 +12,6 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from shlex import quote
 from types import SimpleNamespace
 from typing import NamedTuple
 from uuid import uuid4
@@ -32,6 +31,7 @@ from tqdm.auto import tqdm
 
 from dedelayed.datasets.hf import decode_image, load_dataset
 from dedelayed.registry import MODELS
+from dedelayed.utils.git import commit_version
 from dedelayed.utils.optim import get_raised_cosine_schedule
 from dedelayed.utils.preprocessing import (
     compress_decompress,
@@ -279,13 +279,6 @@ def evaluate(
         metric.update(pred, gt)
     miou = metric.compute().item()
     return miou
-
-
-def commit_version(rev: str = "", root: str = ".") -> str:
-    cmd_flags = "--long --always --tags --match='v[0-9]*'"
-    cmd = f"git -C {quote(root)} describe {cmd_flags}"
-    cmd += " --dirty" if rev == "" else f" {quote(rev)}"
-    return os.popen(cmd).read().rstrip()
 
 
 def save_checkpoint(*, meta: dict, runtime: TrainRuntime, state: TrainState) -> None:
