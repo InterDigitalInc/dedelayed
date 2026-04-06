@@ -621,7 +621,7 @@ def main(cfg: DictConfig) -> None:
         {
             "epoch": state.epoch,
             **{
-                f"val/final/miou_at_past_ticks/{i}": val
+                f"val/epoch/miou_at_past_ticks/{i}": val
                 for i, val in enumerate(val_miou_at_past_ticks)
             },
         },
