@@ -264,11 +264,11 @@ def evaluate(
     *,
     config: Config,
     past_ticks: int,
-    past_ticks_residual: int = 0,
+    past_ticks_offset: int = 0,
     compression: dict | None,
 ) -> float:
     model.eval()
-    past_ticks_true = past_ticks + past_ticks_residual
+    past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
     metric = JaccardIndex(
         task="multiclass", num_classes=19, average="macro", ignore_index=255
