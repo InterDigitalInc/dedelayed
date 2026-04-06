@@ -355,7 +355,7 @@ class TrainState:
     valid_mious: list[float] = field(default_factory=list)
 
 
-def run_epoch(runtime: TrainRuntime, state: TrainState) -> None:
+def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
     config = runtime.cfg.hp.config
     log_step_interval = 1 if runtime.cfg.debug else 100
 
@@ -428,6 +428,12 @@ def run_epoch(runtime: TrainRuntime, state: TrainState) -> None:
     )
     runtime.cfg.metrics.run.val_miou = miou
 
+    epoch_bar.set_postfix(
+        loss=f"{state.train_losses[-1]:.3g}",
+        miou=f"{state.valid_mious[-1]:.3g}",
+        lr=f"{state.learning_rates[-1]:.2g}",
+    )
+    state.epoch += 1
     save_checkpoint(runtime=runtime, state=state)
 
 
@@ -611,13 +617,8 @@ def main(cfg: DictConfig) -> None:
         leave=True,
     )
     for epoch in epoch_bar:
-        run_epoch(runtime=runtime, state=state)
-        epoch_bar.set_postfix(
-            loss=f"{state.train_losses[-1]:.3g}",
-            miou=f"{state.valid_mious[-1]:.3g}",
-            lr=f"{state.learning_rates[-1]:.2g}",
-        )
-        state.epoch = epoch + 1
+        assert state.epoch == epoch
+        run_epoch(runtime=runtime, state=state, epoch_bar=epoch_bar)
 
     val_miou_at_past_ticks = []
     for past_ticks in range(6):
