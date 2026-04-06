@@ -354,6 +354,10 @@ class TrainState:
 def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
     config = runtime.cfg.hp.config
     log_step_interval = 1 if runtime.cfg.debug else 100
+    loss = torch.tensor(float("nan"))
+    lr = runtime.optimizer.param_groups[0]["lr"]
+    grad_norm = torch.tensor(float("nan"))
+    metrics = {}
 
     runtime.model.train()
     for frozen_module in runtime.frozen_modules:
@@ -364,8 +368,9 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         desc=f"train {state.epoch + 1}/{config.epochs}",
         leave=False,
     )
+    num_batches = len(runtime.dataloader["train"])
 
-    for x_remote, x_local, seg_label, past_ticks in train_bar:
+    for i_batch, (x_remote, x_local, seg_label, past_ticks) in enumerate(train_bar):
         x_remote = x_remote.to(runtime.device)
         x_local = x_local.to(runtime.device)
         seg_label = seg_label.to(runtime.device).to(torch.long)
@@ -377,36 +382,37 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             out["seg_logits"]
         )
         loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)(logits, seg_label)
-        total_loss = loss_ce
+        loss = loss_ce
 
         runtime.optimizer.zero_grad()
-        total_loss.backward()
+        loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(
             runtime.model.parameters(), 5.0, norm_type=2.0
         )
+        lr = runtime.optimizer.param_groups[0]["lr"]
         runtime.optimizer.step()
         runtime.scheduler.step()
 
-        state.train_losses.append(total_loss.item())
-        state.learning_rates.append(runtime.optimizer.param_groups[0]["lr"])
-        state.grad_norms.append(float(grad_norm))
+        metrics = {
+            "train/step/loss": float(loss),
+            "train/step/lr": lr,
+            "train/step/grad_norm": float(grad_norm),
+        }
+
+        state.train_losses.append(metrics["train/step/loss"])
+        state.learning_rates.append(metrics["train/step/lr"])
+        state.grad_norms.append(metrics["train/step/grad_norm"])
         state.global_step += 1
-        if state.global_step % log_step_interval == 0:
-            runtime.tracker.log_metrics(
-                {
-                    "train/step/loss": state.train_losses[-1],
-                    "train/step/lr": state.learning_rates[-1],
-                    "train/step/grad_norm": state.grad_norms[-1],
-                },
-                step=state.global_step,
-            )
+
+        if state.global_step % log_step_interval == 0 or i_batch + 1 == num_batches:
+            runtime.tracker.log_metrics(metrics, step=state.global_step)
 
         train_bar.set_postfix(
-            loss=f"{state.train_losses[-1]:.3g}",
-            lr=f"{state.learning_rates[-1]:.2g}",
+            loss=f"{metrics['train/step/loss']:.3g}",
+            lr=f"{metrics['train/step/lr']:.2g}",
         )
 
-    miou = evaluate(
+    metrics["val/epoch/miou"] = evaluate(
         model=runtime.model,
         device=runtime.device,
         config=config,
@@ -414,20 +420,20 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
         compression=DEFAULT_EVAL_COMPRESSION,
     )
-    state.valid_mious.append(miou)
+    state.valid_mious.append(metrics["val/epoch/miou"])
     runtime.tracker.log_metrics(
         {
             "epoch": state.epoch + 1,
-            "val/epoch/miou": state.valid_mious[-1],
+            "val/epoch/miou": metrics["val/epoch/miou"],
         },
         step=state.global_step,
     )
-    runtime.cfg.metrics.run.val_miou = miou
+    runtime.cfg.metrics.run.val_miou = metrics["val/epoch/miou"]
 
     epoch_bar.set_postfix(
-        loss=f"{state.train_losses[-1]:.3g}",
-        miou=f"{state.valid_mious[-1]:.3g}",
-        lr=f"{state.learning_rates[-1]:.2g}",
+        loss=f"{metrics['train/step/loss']:.3g}",
+        miou=f"{metrics['val/epoch/miou']:.3g}",
+        lr=f"{metrics['train/step/lr']:.2g}",
     )
     state.epoch += 1
     save_checkpoint(runtime=runtime, state=state)
