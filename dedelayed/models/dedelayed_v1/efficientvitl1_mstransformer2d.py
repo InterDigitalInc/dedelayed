@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import einops
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 

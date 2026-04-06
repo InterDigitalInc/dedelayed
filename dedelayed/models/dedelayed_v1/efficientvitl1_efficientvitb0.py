@@ -7,7 +7,6 @@ from __future__ import annotations
 from typing import cast
 
 import einops
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 

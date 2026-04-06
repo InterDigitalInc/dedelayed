@@ -1,3 +1,7 @@
+# Copyright (c) 2026, InterDigital
+# All rights reserved.
+# See LICENSE under the root folder.
+
 from __future__ import annotations
 
 import functools
@@ -18,7 +22,7 @@ import einops
 import numpy as np
 import PIL.Image
 import torch
-from timm.optim import Adan
+from timm.optim.adan import Adan
 from torchmetrics.classification import JaccardIndex
 from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
@@ -65,14 +69,14 @@ def augment(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert x_remote_src[0].size == x_local_src[0].size == target_src[0].size
     h, w = target_src[0].height, target_src[0].width
-    fill = {tv_tensors.Image: 0, tv_tensors.Mask: 255}
+    fill: dict = {tv_tensors.Image: 0, tv_tensors.Mask: 255}
     transforms = T.Compose(
         [
             T.RandomHorizontalFlip(0.5),
             T.RandomApply(
                 [
                     T.RandomAffine(
-                        degrees=7,
+                        degrees=[-7.0, 7.0],
                         shear=(-3.0, 3.0, -3.0, 3.0),
                         fill=fill,
                         interpolation=PIL.Image.Resampling.BILINEAR,
