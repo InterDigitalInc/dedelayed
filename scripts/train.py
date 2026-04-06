@@ -9,7 +9,7 @@ import getpass
 import os
 import socket
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple, cast
@@ -292,10 +292,6 @@ def save_checkpoint(*, runtime: TrainRuntime, state: TrainState) -> None:
         "train_state": {
             "epoch": state.epoch,
             "global_step": state.global_step,
-            "learning_rates": torch.tensor(state.learning_rates, dtype=torch.float32),
-            "train_losses": torch.tensor(state.train_losses, dtype=torch.float32),
-            "grad_norms": torch.tensor(state.grad_norms, dtype=torch.float32),
-            "valid_mious": torch.tensor(state.valid_mious, dtype=torch.float32),
         },
     }
     torch.save(ckpt, str(save_path))
@@ -309,17 +305,9 @@ def restore_training_state(
 ) -> TrainState:
     ckpt = ckpt or {"train_state": {}}
     train_state = ckpt["train_state"]
-
-    def to_list(x) -> list:
-        return x.tolist() if isinstance(x, torch.Tensor) else list(x)
-
     state = TrainState(
         epoch=int(train_state.get("epoch", 0)),
         global_step=int(train_state.get("global_step", 0)),
-        learning_rates=to_list(train_state.get("learning_rates", [])),
-        train_losses=to_list(train_state.get("train_losses", [])),
-        grad_norms=to_list(train_state.get("grad_norms", [])),
-        valid_mious=to_list(train_state.get("valid_mious", [])),
     )
     if "optimizer_state_dict" in ckpt:
         optimizer.load_state_dict(ckpt["optimizer_state_dict"])
@@ -345,10 +333,6 @@ class TrainRuntime:
 class TrainState:
     epoch: int = 0
     global_step: int = 0
-    learning_rates: list[float] = field(default_factory=list)
-    train_losses: list[float] = field(default_factory=list)
-    grad_norms: list[float] = field(default_factory=list)
-    valid_mious: list[float] = field(default_factory=list)
 
 
 def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
@@ -399,9 +383,6 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             "train/step/grad_norm": float(grad_norm),
         }
 
-        state.train_losses.append(metrics["train/step/loss"])
-        state.learning_rates.append(metrics["train/step/lr"])
-        state.grad_norms.append(metrics["train/step/grad_norm"])
         state.global_step += 1
 
         if state.global_step % log_step_interval == 0 or i_batch + 1 == num_batches:
@@ -420,7 +401,6 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
         compression=DEFAULT_EVAL_COMPRESSION,
     )
-    state.valid_mious.append(metrics["val/epoch/miou"])
     runtime.tracker.log_metrics(
         {
             "epoch": state.epoch + 1,
