@@ -21,7 +21,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(nn.Module):
         self,
         *,
         normalization_src: ImageNormalizationKind = "01",
-        normalization_dest: ImageNormalizationKind = "imagenet",
+        normalization_dest: ImageNormalizationKind = "minus1_1",
     ):
         super().__init__()
         self.normalization_src: ImageNormalizationKind = normalization_src
