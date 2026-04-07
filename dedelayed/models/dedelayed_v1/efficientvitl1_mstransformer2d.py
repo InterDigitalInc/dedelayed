@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Literal
+
 import einops
 import torch.nn.functional as F
 from torch import Tensor
@@ -15,6 +18,8 @@ from dedelayed.models.backbones.mstransformer2d import MSTransformer2D
 from dedelayed.registry import register_model
 
 from .base import Dedelayed_v1_Fused, Dedelayed_v1_Local, Dedelayed_v1_Remote
+
+RemoteOutputKey = Literal["downlink_features", "downlink_seg_logits"]
 
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_remote")
@@ -39,6 +44,10 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
         z_remote: Tensor | None = None,
         x_local_size: tuple[int, int],
         past_ticks: Tensor,
+        output_keys: Sequence[RemoteOutputKey] = (
+            "downlink_features",
+            # "downlink_seg_logits",
+        ),
     ):
         H_local, W_local = x_local_size
         output_size = (H_local // 8, W_local // 8)
@@ -51,17 +60,18 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
         z = self.main_model.vit3d(z)
         z = einops.rearrange(z, "b c f h w -> b (c f) h w", f=4)
 
-        # downlink_seg_logits = self.main_model.head(z)
+        outputs = {}
 
-        z = self.mlp_pre_pool(z)
-        z = F.adaptive_avg_pool2d(z, output_size=output_size)
-        z = self.mlp_post_pool(z)
-        downlink_features = z
+        if "downlink_seg_logits" in output_keys:
+            outputs["downlink_seg_logits"] = self.main_model.head(z)
 
-        return {
-            "downlink_features": downlink_features,
-            # "downlink_seg_logits": downlink_seg_logits,
-        }
+        if "downlink_features" in output_keys:
+            z = self.mlp_pre_pool(z)
+            z = F.adaptive_avg_pool2d(z, output_size=output_size)
+            z = self.mlp_post_pool(z)
+            outputs["downlink_features"] = z
+
+        return outputs
 
     def contextualize(self, x: Tensor) -> Tensor:
         x = renormalize(
