@@ -23,6 +23,7 @@ import PIL.Image
 import torch
 from omegaconf import DictConfig, OmegaConf
 from timm.optim.adan import Adan
+from torch.utils.data import DataLoader
 from torchmetrics.classification import JaccardIndex
 from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
@@ -567,17 +568,8 @@ def main(cfg: DictConfig) -> None:
     }
     tracker = build_tracker(cfg.tracker, run_id=cfg.run.run_id, hparams=tracker_hparams)
 
-    model, frozen_modules = init_model(cfg, device, resume_ckpt)
-    learnable_params = [param for param in model.parameters() if param.requires_grad]
-    optimizer = Adan(learnable_params, lr=cfg.hp.optim.max_lr, caution=True)
-    scheduler = RaisedCosineLR(
-        optimizer,
-        num_training_steps=config.epochs
-        * (dataset["train"].num_rows // config.batch_size),
-        lr_pow=cfg.hp.optim.lr_pow,
-    )
     dataloader = {
-        "train": torch.utils.data.DataLoader(
+        "train": DataLoader(
             dataset["train"],  # type: ignore[arg-type]
             batch_size=config.batch_size,
             num_workers=(
@@ -591,6 +583,14 @@ def main(cfg: DictConfig) -> None:
             persistent_workers=True,
         )
     }
+    model, frozen_modules = init_model(cfg, device, resume_ckpt)
+    learnable_params = [param for param in model.parameters() if param.requires_grad]
+    optimizer = Adan(learnable_params, lr=cfg.hp.optim.max_lr, caution=True)
+    scheduler = RaisedCosineLR(
+        optimizer,
+        num_training_steps=config.epochs * len(dataloader["train"]),
+        lr_pow=cfg.hp.optim.lr_pow,
+    )
 
     runtime = TrainRuntime(
         model=model,
