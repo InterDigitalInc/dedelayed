@@ -438,9 +438,10 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     save_checkpoint(runtime=runtime, state=state)
 
 
-def build_fused_model(model_cfg: dict) -> torch.nn.Module:
-    name = model_cfg["name"]
-    kw = model_cfg.get("kwargs", {})
+def build_fused_model(model_cfg: DictConfig) -> torch.nn.Module:
+    model_dict = cast(dict, OmegaConf.to_container(model_cfg, resolve=True))
+    name = model_dict["name"]
+    kw = model_dict.get("kwargs", {})
     return MODELS[name](
         remote_model=MODELS[f"{name}_remote"](**kw.get("remote_model", {})),
         local_model=MODELS[f"{name}_local"](**kw.get("local_model", {})),
