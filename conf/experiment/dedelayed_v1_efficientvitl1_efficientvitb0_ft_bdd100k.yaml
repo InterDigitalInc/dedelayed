@@ -20,7 +20,6 @@ hp:
     aspect: 1.7778
     remote_size: 720
     local_size: 480
-    compression_level: near_lossless
     seg_logits_interpolation: BILINEAR
     min_delay: 0
     max_delay: 5
@@ -36,15 +35,23 @@ hp:
 
   dataset:
     train:
-      name: hf
+      name: hf_temporal_columns
       kwargs:
         path: /path/to/labeled_video_dataset
         split: train
+        remap:
+          remote_frame: near_lossless
+          local_frame: near_lossless
+          seg_mask: label
     validation:
-      name: hf
+      name: hf_temporal_columns
       kwargs:
         path: /path/to/labeled_video_dataset
         split: validation
+        remap:
+          remote_frame: original
+          local_frame: original
+          seg_mask: label_hq
 
   model:
     name: dedelayed_v1_efficientvitl1_efficientvitb0
