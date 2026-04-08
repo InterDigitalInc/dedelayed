@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import NamedTuple, cast
 from uuid import uuid4
 
-import datasets
 import einops
 import hydra
 import numpy as np
@@ -23,7 +22,7 @@ import PIL.Image
 import torch
 from omegaconf import DictConfig, OmegaConf
 from timm.optim.adan import Adan
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchmetrics.classification import JaccardIndex
 from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
@@ -31,8 +30,8 @@ from torchvision.transforms.v2 import Resize
 from torchvision.transforms.v2.functional import pil_to_tensor
 from tqdm.auto import tqdm
 
-from dedelayed.datasets.hf import decode_image, load_dataset
-from dedelayed.registry import MODELS
+from dedelayed.datasets.hf import decode_image
+from dedelayed.registry import DATASETS, MODELS
 from dedelayed.utils.git import commit_version
 from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import (
@@ -232,7 +231,7 @@ def collate_eval(
 def evaluate(
     model: torch.nn.Module,
     device: str,
-    dataset: datasets.Dataset,
+    dataset: Dataset,
     *,
     config: Config,
     past_ticks: int,
@@ -248,8 +247,8 @@ def evaluate(
         average="macro",
         ignore_index=255,
     ).to(device)
-    loader = torch.utils.data.DataLoader(
-        dataset,  # type: ignore[arg-type]
+    loader = DataLoader(
+        dataset,
         batch_size=1,
         shuffle=False,
         drop_last=False,
@@ -342,8 +341,8 @@ class TrainRuntime:
     tracker: Tracker
     device: str
     cfg: DictConfig
-    dataset: datasets.DatasetDict
-    dataloader: dict[str, torch.utils.data.DataLoader]
+    dataset: dict[str, Dataset]
+    dataloader: dict[str, DataLoader]
 
 
 @dataclass
@@ -436,6 +435,11 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     )
     state.epoch += 1
     save_checkpoint(runtime=runtime, state=state)
+
+
+def build_dataset(dataset_cfg: DictConfig) -> Dataset:
+    dataset_dict = cast(dict, OmegaConf.to_container(dataset_cfg, resolve=True))
+    return DATASETS[dataset_dict["name"]](**dataset_dict["kwargs"])
 
 
 def build_fused_model(model_cfg: DictConfig) -> torch.nn.Module:
@@ -540,20 +544,15 @@ def main(cfg: DictConfig) -> None:
         cfg = cast(DictConfig, OmegaConf.create(resume_ckpt["meta"]))
         print(f"Resuming from checkpoint: {ckpt_path}")
 
-    dataset = datasets.DatasetDict(
-        {
-            key: load_dataset(value.path, split=value.split)
-            for key, value in cfg.hp.dataset.items()
-        }
-    )
+    dataset = {key: build_dataset(ds_cfg) for key, ds_cfg in cfg.hp.dataset.items()}
 
     config = cfg.hp.config
 
     if cfg.debug:
         config.epochs = 3
         n_debug = 3 * config.batch_size
-        dataset["train"] = dataset["train"].select(range(n_debug))
-        dataset["validation"] = dataset["validation"].select(range(n_debug))
+        dataset["train"] = Subset(dataset["train"], range(n_debug))
+        dataset["validation"] = Subset(dataset["validation"], range(n_debug))
 
     meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     tracker_hparams = {
@@ -571,7 +570,7 @@ def main(cfg: DictConfig) -> None:
 
     dataloader = {
         "train": DataLoader(
-            dataset["train"],  # type: ignore[arg-type]
+            dataset["train"],
             batch_size=config.batch_size,
             num_workers=(
                 config.num_workers

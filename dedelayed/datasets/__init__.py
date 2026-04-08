@@ -2,3 +2,4 @@
 # All rights reserved.
 # See LICENSE under the root folder.
 
+from . import hf as hf

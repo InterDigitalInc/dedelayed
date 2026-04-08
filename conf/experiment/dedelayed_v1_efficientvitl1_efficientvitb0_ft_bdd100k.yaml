@@ -36,11 +36,15 @@ hp:
 
   dataset:
     train:
-      path: /path/to/labeled_video_dataset
-      split: train
+      name: hf
+      kwargs:
+        path: /path/to/labeled_video_dataset
+        split: train
     validation:
-      path: /path/to/labeled_video_dataset
-      split: validation
+      name: hf
+      kwargs:
+        path: /path/to/labeled_video_dataset
+        split: validation
 
   model:
     name: dedelayed_v1_efficientvitl1_efficientvitb0
