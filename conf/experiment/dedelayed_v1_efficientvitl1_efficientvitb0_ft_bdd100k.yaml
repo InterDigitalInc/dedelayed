@@ -27,7 +27,6 @@ hp:
     ops: 8
     drop_path: 0.1
     drop_downlink_features_prob: 0.1667
-    idx_eval_frame: 14
 
   optim:
     max_lr: 1e-4
@@ -39,6 +38,7 @@ hp:
       kwargs:
         path: /path/to/labeled_video_dataset
         split: train
+        ref_idx: 0
         remap:
           remote_frame: near_lossless
           local_frame: near_lossless
@@ -48,6 +48,7 @@ hp:
       kwargs:
         path: /path/to/labeled_video_dataset
         split: validation
+        ref_idx: 14
         remap:
           remote_frame: original
           local_frame: original

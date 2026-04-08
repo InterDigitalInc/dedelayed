@@ -53,19 +53,21 @@ class HfTemporalColumnsDataset(Dataset):
         path: str,
         split: str,
         remap: dict[str, str],
+        ref_idx: int = 0,
     ) -> None:
         self._dataset = load_dataset(path, split=split)
         self._remap = remap
+        self._ref_idx = ref_idx
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        return remap_and_gather_series(self._dataset[idx], self._remap)
+        return remap_and_gather_series(self._dataset[idx], self._remap, self._ref_idx)
 
     def __len__(self) -> int:
         return len(self._dataset)
 
 
 def remap_and_gather_series(
-    sample: dict[str, Any], remap: dict[str, str]
+    sample: dict[str, Any], remap: dict[str, str], ref_idx: int
 ) -> dict[str, Any]:
     remap_inv = defaultdict(list)
     for dst, src in remap.items():
@@ -79,5 +81,5 @@ def remap_and_gather_series(
             continue
         src, idx = match.groups()
         for dst in remap_inv[src]:
-            grouped[dst][int(idx)] = value
+            grouped[dst][int(idx) - ref_idx] = value
     return grouped

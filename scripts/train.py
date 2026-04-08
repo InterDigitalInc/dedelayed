@@ -199,7 +199,6 @@ def collate_eval(
     batch,
     *,
     past_ticks_true: int,
-    idx_eval_frame: int,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
     compression: dict | None,
@@ -210,15 +209,15 @@ def collate_eval(
     decode = cache_by_id(decode_image)
     x_remote, x_local = preprocess_eval(
         x_remote_src=[
-            decode(sample["remote_frame"][idx_eval_frame - past_ticks_true - k])
+            decode(sample["remote_frame"][-past_ticks_true - k])
             for k in reversed(range(X_REMOTE_LEN))
         ],
-        x_local_src=[decode(sample["local_frame"][idx_eval_frame])],
+        x_local_src=[decode(sample["local_frame"][0])],
         x_remote_size=x_remote_size,
         x_local_size=x_local_size,
         compression=compression,
     )
-    gt = pil_to_tensor(decode(sample["seg_mask"][idx_eval_frame])).squeeze(0)
+    gt = pil_to_tensor(decode(sample["seg_mask"][0])).squeeze(0)
     x_remote = x_remote.unsqueeze(0)
     x_local = x_local.unsqueeze(0)
     gt = gt.unsqueeze(0)
@@ -256,7 +255,6 @@ def evaluate(
         collate_fn=functools.partial(
             collate_eval,
             past_ticks_true=past_ticks_true,
-            idx_eval_frame=config.idx_eval_frame,
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
             compression=compression,
