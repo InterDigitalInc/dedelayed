@@ -170,36 +170,21 @@ def collate_train(batch, *, config: Config):
     return x_remote, x_local, target, past_ticks
 
 
-def preprocess_eval(
+def preprocess_frames(
+    frames: list,
     *,
-    x_remote_src: list,
-    x_local_src: list,
-    x_remote_size: tuple[int, int],
-    x_local_size: tuple[int, int],
-    compression: dict | None,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    x_remote_frames = []
-    for frame in x_remote_src:
-        remote_frame = compress_decompress(frame, compression)
-        x_remote_i = pil_to_tensor(remote_frame)
-        x_remote_i = Resize(x_remote_size, interpolation=PIL.Image.Resampling.BICUBIC)(
-            x_remote_i
-        )
-        x_remote_i = normalize_uint8(x_remote_i)
-        x_remote_frames.append(x_remote_i)
-    x_remote = torch.stack(x_remote_frames, dim=1)
-
-    x_local_frames = []
-    for frame in x_local_src:
-        x_local_i = pil_to_tensor(frame)
-        x_local_i = Resize(x_local_size, interpolation=PIL.Image.Resampling.BICUBIC)(
-            x_local_i
-        )
-        x_local_i = normalize_uint8(x_local_i)
-        x_local_frames.append(x_local_i)
-    x_local = torch.stack(x_local_frames, dim=1)
-
-    return x_remote, x_local
+    compression: dict | None = None,
+    size: tuple[int, int],
+    interpolation=PIL.Image.Resampling.BICUBIC,
+) -> torch.Tensor:
+    processed_frames = []
+    for frame in frames:
+        frame = compress_decompress(frame, compression)
+        frame = pil_to_tensor(frame)
+        frame = Resize(size, interpolation=interpolation)(frame)
+        frame = normalize_uint8(frame)
+        processed_frames.append(frame)
+    return torch.stack(processed_frames, dim=1)
 
 
 def collate_eval(
@@ -214,15 +199,20 @@ def collate_eval(
     sample = batch[0]
     assert isinstance(sample, dict)
     decode = cache_by_id(decode_image)
-    x_remote, x_local = preprocess_eval(
-        x_remote_src=[
+    x_remote = preprocess_frames(
+        [
             decode(sample["remote_frame"][-past_ticks_true - k])
             for k in reversed(range(X_REMOTE_LEN))
         ],
-        x_local_src=[decode(sample["local_frame"][0])],
-        x_remote_size=x_remote_size,
-        x_local_size=x_local_size,
         compression=compression,
+        size=x_remote_size,
+        interpolation=PIL.Image.Resampling.BICUBIC,
+    )
+    x_local = preprocess_frames(
+        [decode(sample["local_frame"][0])],
+        compression=None,
+        size=x_local_size,
+        interpolation=PIL.Image.Resampling.BICUBIC,
     )
     gt = pil_to_tensor(decode(sample["seg_mask"][0])).squeeze(0)
     x_remote = x_remote.unsqueeze(0)
