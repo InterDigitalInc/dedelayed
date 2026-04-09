@@ -49,17 +49,13 @@ DEFAULT_EVAL_PAST_TICKS = 5
 X_REMOTE_LEN = 4
 
 
-def augment(
-    *,
-    x_remote_src: list,
-    x_local_src: list,
-    target_src: list,
+def build_train_transform(
+    source_size: tuple[int, int],
     crop_scale: tuple[float, float] = (0.65, 1.0),
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x_remote_src[0].size == x_local_src[0].size == target_src[0].size
-    h, w = target_src[0].height, target_src[0].width
+) -> T.Compose:
+    h, w = source_size
     fill: dict = {tv_tensors.Image: 0, tv_tensors.Mask: 255}
-    transforms = T.Compose(
+    return T.Compose(
         [
             T.RandomHorizontalFlip(0.5),
             T.RandomApply(
@@ -86,6 +82,17 @@ def augment(
         ]
     )
 
+
+def augment(
+    *,
+    x_remote_src: list,
+    x_local_src: list,
+    target_src: list,
+    crop_scale: tuple[float, float] = (0.65, 1.0),
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    assert x_remote_src[0].size == x_local_src[0].size == target_src[0].size
+    target_src_size = target_src[0].height, target_src[0].width
+    transforms = build_train_transform(target_src_size, crop_scale)
     x_remote, x_local, target = transforms(
         [tv_tensors.Image(frame) for frame in x_remote_src],
         [tv_tensors.Image(frame) for frame in x_local_src],
