@@ -118,68 +118,6 @@ def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
     )
 
 
-def collate_train(
-    batch,
-    *,
-    config: Config,
-    remote_compression: dict | None = None,
-    transform: T.Transform,
-    x_remote_size: tuple[int, int],
-    x_local_size: tuple[int, int],
-    interpolation=PIL.Image.Resampling.BICUBIC,
-):
-    x_remote, x_local, target, past_ticks = collate(
-        batch,
-        sample_temporal_indices=functools.partial(
-            sample_temporal_indices_train,
-            config,
-        ),
-        remote_compression=remote_compression,
-        transform=transform,
-        x_remote_size=x_remote_size,
-        x_local_size=x_local_size,
-        interpolation=interpolation,
-    )
-
-    # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
-    # x_local: [B, 3, x_local_len, H_local, W_local], float32
-    # target: [B, target_len, H_target, W_target], uint8/int
-    # past_ticks: [B], float32 frame offsets
-    return x_remote, x_local, target, past_ticks
-
-
-def collate_eval(
-    batch,
-    *,
-    past_ticks: int,
-    past_ticks_true: int,
-    remote_compression: dict | None,
-    transform: T.Transform,
-    x_remote_size: tuple[int, int],
-    x_local_size: tuple[int, int],
-    interpolation=PIL.Image.Resampling.BICUBIC,
-):
-    x_remote, x_local, target, past_ticks_t = collate(
-        batch,
-        sample_temporal_indices=functools.partial(
-            sample_temporal_indices_eval,
-            past_ticks,
-            past_ticks_true,
-        ),
-        remote_compression=remote_compression,
-        transform=transform,
-        x_remote_size=x_remote_size,
-        x_local_size=x_local_size,
-        interpolation=interpolation,
-    )
-
-    # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
-    # x_local: [B, 3, x_local_len, H_local, W_local], float32
-    # target: [B, target_len, H_target, W_target], uint8/int
-    # past_ticks_t: [B], float32 frame offsets
-    return x_remote, x_local, target, past_ticks_t
-
-
 def collate(
     batch,
     *,
@@ -280,11 +218,12 @@ def evaluate(
         if config.num_workers is not None
         else len(os.sched_getaffinity(0)),
         collate_fn=functools.partial(
-            collate_eval,
-            past_ticks=past_ticks,
-            past_ticks_true=past_ticks_true,
-            transform=build_eval_transform(),
+            collate,
+            sample_temporal_indices=functools.partial(
+                sample_temporal_indices_eval, past_ticks, past_ticks_true
+            ),
             remote_compression=compression,
+            transform=build_eval_transform(),
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
         ),
@@ -588,8 +527,11 @@ def main(cfg: DictConfig) -> None:
             drop_last=True,
             shuffle=True,
             collate_fn=functools.partial(
-                collate_train,
-                config=config,
+                collate,
+                sample_temporal_indices=functools.partial(
+                    sample_temporal_indices_train, config
+                ),
+                remote_compression=None,
                 transform=build_train_transform(
                     source_size=compute_size(config.remote_size, config.aspect, 1),
                 ),
