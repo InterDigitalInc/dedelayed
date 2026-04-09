@@ -12,7 +12,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NamedTuple, cast
+from typing import Callable, NamedTuple, cast
 from uuid import uuid4
 
 import einops
@@ -27,7 +27,6 @@ from torchmetrics.classification import JaccardIndex
 from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
 from torchvision.transforms.v2 import Resize
-from torchvision.transforms.v2.functional import pil_to_tensor
 from tqdm.auto import tqdm
 
 from dedelayed.datasets.hf import decode_image
@@ -83,29 +82,12 @@ def build_train_transform(
     )
 
 
-def augment(
-    *,
-    x_remote_src: list,
-    x_local_src: list,
-    target_src: list,
-    crop_scale: tuple[float, float] = (0.65, 1.0),
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert x_remote_src[0].size == x_local_src[0].size == target_src[0].size
-    target_src_size = target_src[0].height, target_src[0].width
-    transforms = build_train_transform(target_src_size, crop_scale)
-    x_remote, x_local, target = transforms(
-        [tv_tensors.Image(frame) for frame in x_remote_src],
-        [tv_tensors.Image(frame) for frame in x_local_src],
-        [tv_tensors.Mask(frame) for frame in target_src],
+def build_eval_transform() -> T.Compose:
+    return T.Compose(
+        [
+            T.ToPureTensor(),
+        ]
     )
-    x_remote = torch.stack(x_remote)
-    x_local = torch.stack(x_local)
-    target = torch.stack(target).squeeze(1)
-
-    x_remote_flat = x_remote.reshape(-1, *x_remote.shape[-2:])
-    x_local_flat = x_local.reshape(-1, *x_local.shape[-2:])
-    target_flat = target.reshape(-1, *target.shape[-2:])
-    return x_remote_flat, x_local_flat, target_flat
 
 
 class TemporalSample(NamedTuple):
@@ -115,7 +97,7 @@ class TemporalSample(NamedTuple):
     target: int
 
 
-def sample_temporal_indices(config: Config):
+def sample_temporal_indices_train(config: Config):
     past_ticks = np.random.choice(range(config.min_delay, config.max_delay + 1))
     i_start = np.random.choice(range(0, (16 - X_REMOTE_LEN) - past_ticks))
     i_frames = list(range(i_start, i_start + past_ticks + X_REMOTE_LEN))
@@ -127,98 +109,146 @@ def sample_temporal_indices(config: Config):
     )
 
 
-def collate_train(batch, *, config: Config):
-    x_remote_size = compute_size(config.remote_size, config.aspect, config.ips)
-    x_local_size = compute_size(config.local_size, config.aspect, config.ips)
-
-    ts = sample_temporal_indices(config)
-    past_ticks = torch.full((len(batch),), float(ts.past_ticks), dtype=torch.float32)
-
-    x_remote_batch = []
-    x_local_batch = []
-    target_batch = []
-
-    for sample in batch:
-        decode = cache_by_id(decode_image)
-        x_remote_i, x_local_i, target_i = augment(
-            x_remote_src=[decode(sample["remote_frame"][i]) for i in ts.x_remote],
-            x_local_src=[decode(sample["local_frame"][ts.x_local])],
-            target_src=[decode(sample["seg_mask"][ts.target])],
-        )
-        x_remote_batch.append(x_remote_i)
-        x_local_batch.append(x_local_i)
-        target_batch.append(target_i)
-
-    x_remote = torch.stack(x_remote_batch)
-    x_remote = einops.rearrange(x_remote, "b (f c) h w -> (b f) c h w", c=3)
-    x_remote = Resize(x_remote_size, interpolation=PIL.Image.Resampling.BICUBIC)(
-        x_remote
+def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
+    return TemporalSample(
+        past_ticks=past_ticks,
+        x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
+        x_local=0,
+        target=0,
     )
-    x_remote = x_remote.view(len(x_remote_batch), X_REMOTE_LEN, 3, *x_remote.shape[-2:])
-    x_remote = x_remote.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, F, H, W]
-    x_remote = normalize_uint8(x_remote)
-    x_local = torch.stack(x_local_batch)
-    x_local = Resize(x_local_size, interpolation=PIL.Image.Resampling.BICUBIC)(x_local)
-    x_local = normalize_uint8(x_local)
-    target = torch.stack(target_batch)
-    target = target.squeeze(1)
+
+
+def collate_train(
+    batch,
+    *,
+    config: Config,
+    remote_compression: dict | None = None,
+    transform: T.Transform,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
+    interpolation=PIL.Image.Resampling.BICUBIC,
+):
+    x_remote, x_local, target, past_ticks = collate(
+        batch,
+        sample_temporal_indices=functools.partial(
+            sample_temporal_indices_train,
+            config,
+        ),
+        remote_compression=remote_compression,
+        transform=transform,
+        x_remote_size=x_remote_size,
+        x_local_size=x_local_size,
+        interpolation=interpolation,
+    )
 
     # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
-    # x_local: [B, 3, H_local, W_local], float32
-    # target: [B, H_target, W_target], uint8/int
+    # x_local: [B, 3, x_local_len, H_local, W_local], float32
+    # target: [B, target_len, H_target, W_target], uint8/int
     # past_ticks: [B], float32 frame offsets
     return x_remote, x_local, target, past_ticks
-
-
-def preprocess_frames(
-    frames: list,
-    *,
-    compression: dict | None = None,
-    size: tuple[int, int],
-    interpolation=PIL.Image.Resampling.BICUBIC,
-) -> torch.Tensor:
-    processed_frames = []
-    for frame in frames:
-        frame = compress_decompress(frame, compression)
-        frame = pil_to_tensor(frame)
-        frame = Resize(size, interpolation=interpolation)(frame)
-        frame = normalize_uint8(frame)
-        processed_frames.append(frame)
-    return torch.stack(processed_frames, dim=1)
 
 
 def collate_eval(
     batch,
     *,
+    past_ticks: int,
     past_ticks_true: int,
+    remote_compression: dict | None,
+    transform: T.Transform,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
-    compression: dict | None,
+    interpolation=PIL.Image.Resampling.BICUBIC,
 ):
-    assert len(batch) == 1
-    sample = batch[0]
-    assert isinstance(sample, dict)
+    x_remote, x_local, target, past_ticks_t = collate(
+        batch,
+        sample_temporal_indices=functools.partial(
+            sample_temporal_indices_eval,
+            past_ticks,
+            past_ticks_true,
+        ),
+        remote_compression=remote_compression,
+        transform=transform,
+        x_remote_size=x_remote_size,
+        x_local_size=x_local_size,
+        interpolation=interpolation,
+    )
+
+    # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
+    # x_local: [B, 3, x_local_len, H_local, W_local], float32
+    # target: [B, target_len, H_target, W_target], uint8/int
+    # past_ticks_t: [B], float32 frame offsets
+    return x_remote, x_local, target, past_ticks_t
+
+
+def collate(
+    batch,
+    *,
+    sample_temporal_indices: Callable[[], TemporalSample],
+    remote_compression: dict | None,
+    transform: T.Transform,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
+    interpolation: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
+):
+    ts = sample_temporal_indices()
     decode = cache_by_id(decode_image)
-    x_remote = preprocess_frames(
-        [
-            decode(sample["remote_frame"][-past_ticks_true - k])
-            for k in reversed(range(X_REMOTE_LEN))
-        ],
-        compression=compression,
-        size=x_remote_size,
-        interpolation=PIL.Image.Resampling.BICUBIC,
-    )
-    x_local = preprocess_frames(
-        [decode(sample["local_frame"][0])],
-        compression=None,
-        size=x_local_size,
-        interpolation=PIL.Image.Resampling.BICUBIC,
-    )
-    gt = pil_to_tensor(decode(sample["seg_mask"][0])).squeeze(0)
-    x_remote = x_remote.unsqueeze(0)
-    x_local = x_local.unsqueeze(0)
-    gt = gt.unsqueeze(0)
-    return x_remote, x_local, gt
+
+    x_remote_batch = []
+    x_local_batch = []
+    target_batch = []
+    past_ticks_batch = []
+
+    for sample in batch:
+        assert isinstance(sample, dict)
+
+        x_remote_src = [decode(sample["remote_frame"][i]) for i in ts.x_remote]
+        x_local_src = [decode(sample["local_frame"][ts.x_local])]
+        target_src = [decode(sample["seg_mask"][ts.target])]
+
+        x_remote_src = [
+            compress_decompress(frame, remote_compression) for frame in x_remote_src
+        ]
+
+        x_remote_i, x_local_i, target_i = transform(
+            [tv_tensors.Image(frame) for frame in x_remote_src],
+            [tv_tensors.Image(frame) for frame in x_local_src],
+            [tv_tensors.Mask(frame) for frame in target_src],
+        )
+
+        x_remote_i = [
+            normalize_uint8(Resize(x_remote_size, interpolation)(frame))
+            for frame in x_remote_i
+        ]
+        x_local_i = [
+            normalize_uint8(Resize(x_local_size, interpolation)(frame))
+            for frame in x_local_i
+        ]
+        target_i = [frame.squeeze(0) for frame in target_i]
+        past_ticks_i = torch.tensor(ts.past_ticks, dtype=torch.float32)
+
+        x_remote_batch.extend(x_remote_i)
+        x_local_batch.extend(x_local_i)
+        target_batch.extend(target_i)
+        past_ticks_batch.append(past_ticks_i)
+
+    x_remote = torch.stack(x_remote_batch)
+    x_local = torch.stack(x_local_batch)
+    target = torch.stack(target_batch)
+    past_ticks = torch.stack(past_ticks_batch)
+
+    x_remote = einops.rearrange(
+        x_remote, "(b f) c h w -> b c f h w", b=len(batch)
+    ).contiguous()
+    x_local = einops.rearrange(
+        x_local, "(b f) c h w -> b c f h w", b=len(batch)
+    ).contiguous()
+    target = einops.rearrange(target, "(b f) h w -> b f h w", b=len(batch)).contiguous()
+
+    # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
+    # x_local: [B, 3, x_local_len, H_local, W_local], float32
+    # target: [B, target_len, H_target, W_target], uint8/int
+    # past_ticks: [B], float32 frame offsets
+    return x_remote, x_local, target, past_ticks
 
 
 @torch.inference_mode()
@@ -251,20 +281,19 @@ def evaluate(
         else len(os.sched_getaffinity(0)),
         collate_fn=functools.partial(
             collate_eval,
+            past_ticks=past_ticks,
             past_ticks_true=past_ticks_true,
+            transform=build_eval_transform(),
+            remote_compression=compression,
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
-            compression=compression,
         ),
     )
-    for x_remote, x_local, gt in tqdm(loader, desc="eval", leave=False):
+    for x_remote, x_local, gt, past_ticks_t in tqdm(loader, desc="eval", leave=False):
         x_remote = x_remote.to(device)
         x_local = x_local.to(device)
-        gt = gt.to(device)
-        B, *_ = x_remote.shape
-        past_ticks_t = torch.full(
-            (B,), float(past_ticks), device=device, dtype=torch.float32
-        )
+        gt = gt[:, 0].to(device)
+        past_ticks_t = past_ticks_t.to(device)
         out = model(x_local[:, :, 0], x_remote, past_ticks_t)
         gt_h, gt_w = gt.shape[-2:]
         logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
@@ -354,10 +383,10 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     for i_batch, (x_remote, x_local, seg_label, past_ticks) in enumerate(train_bar):
         x_remote = x_remote.to(runtime.device)
         x_local = x_local.to(runtime.device)
-        seg_label = seg_label.to(runtime.device).to(torch.long)
+        seg_label = seg_label[:, 0].to(runtime.device).to(torch.long)
         past_ticks = past_ticks.to(runtime.device)
 
-        out = runtime.model(x_local, x_remote, past_ticks)
+        out = runtime.model(x_local[:, :, 0], x_remote, past_ticks)
         logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
         logits = Resize(seg_label.shape[-2:], interpolation=logits_interp)(
             out["seg_logits"]
@@ -558,7 +587,17 @@ def main(cfg: DictConfig) -> None:
             ),
             drop_last=True,
             shuffle=True,
-            collate_fn=functools.partial(collate_train, config=config),
+            collate_fn=functools.partial(
+                collate_train,
+                config=config,
+                transform=build_train_transform(
+                    source_size=compute_size(config.remote_size, config.aspect, 1),
+                ),
+                x_remote_size=compute_size(
+                    config.remote_size, config.aspect, config.ips
+                ),
+                x_local_size=compute_size(config.local_size, config.aspect, config.ips),
+            ),
             persistent_workers=True,
         )
     }
