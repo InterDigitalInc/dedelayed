@@ -17,7 +17,7 @@ hp:
     total_steps: null
     batch_size: 1
     num_classes: 19
-    aspect: 1.74
+    aspect: 1.7778
     remote_size: 720
     local_size: 480
     compression_level: near_lossless
