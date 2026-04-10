@@ -190,22 +190,26 @@ def collate(
 
 
 @torch.inference_mode()
-def evaluate(
+def evaluate_dedelayed_v1_segmentation(
     model: torch.nn.Module,
     device: str,
     dataset: Dataset,
     *,
-    config: Config,
     past_ticks: int,
     past_ticks_offset: int = 0,
     uplink_compression: dict | None,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
+    logits_interp: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
+    num_classes: int,
+    num_workers: int = 0,
 ) -> float:
     model.eval()
     past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
     metric = JaccardIndex(
         task="multiclass",
-        num_classes=config.num_classes,
+        num_classes=num_classes,
         average="macro",
         ignore_index=255,
     ).to(device)
@@ -214,9 +218,7 @@ def evaluate(
         batch_size=1,
         shuffle=False,
         drop_last=False,
-        num_workers=config.num_workers
-        if config.num_workers is not None
-        else len(os.sched_getaffinity(0)),
+        num_workers=num_workers,
         collate_fn=functools.partial(
             collate,
             sample_temporal_indices=functools.partial(
@@ -224,8 +226,8 @@ def evaluate(
             ),
             uplink_compression=uplink_compression,
             transform=build_eval_transform(),
-            x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
-            x_local_size=compute_size(config.local_size, config.aspect, config.ips),
+            x_remote_size=x_remote_size,
+            x_local_size=x_local_size,
         ),
     )
     for x_remote, x_local, gt, past_ticks_t in tqdm(loader, desc="eval", leave=False):
@@ -235,7 +237,6 @@ def evaluate(
         past_ticks_t = past_ticks_t.to(device)
         out = model(x_local[:, :, 0], x_remote, past_ticks_t)
         gt_h, gt_w = gt.shape[-2:]
-        logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
         logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
         pred = logits.argmax(dim=1).to(torch.uint8)
         metric.update(pred, gt)
@@ -358,13 +359,21 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             lr=f"{metrics['train/step/lr']:.2g}",
         )
 
-    metrics["val/epoch/miou"] = evaluate(
+    metrics["val/epoch/miou"] = evaluate_dedelayed_v1_segmentation(
         model=runtime.model,
         device=runtime.device,
-        config=config,
         dataset=runtime.dataset["validation"],
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
         uplink_compression=DEFAULT_EVAL_COMPRESSION,
+        x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
+        x_local_size=compute_size(config.local_size, config.aspect, config.ips),
+        logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
+        num_classes=config.num_classes,
+        num_workers=(
+            config.num_workers
+            if config.num_workers is not None
+            else len(os.sched_getaffinity(0))
+        ),
     )
     runtime.tracker.log_metrics(
         {
@@ -582,13 +591,21 @@ def main(cfg: DictConfig) -> None:
 
     val_miou_at_past_ticks = []
     for past_ticks in range(6):
-        miou = evaluate(
+        miou = evaluate_dedelayed_v1_segmentation(
             model=runtime.model,
             device=runtime.device,
-            config=config,
             dataset=runtime.dataset["validation"],
             past_ticks=past_ticks,
             uplink_compression=DEFAULT_EVAL_COMPRESSION,
+            x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
+            x_local_size=compute_size(config.local_size, config.aspect, config.ips),
+            logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
+            num_classes=config.num_classes,
+            num_workers=(
+                config.num_workers
+                if config.num_workers is not None
+                else len(os.sched_getaffinity(0))
+            ),
         )
         val_miou_at_past_ticks.append(miou)
 
