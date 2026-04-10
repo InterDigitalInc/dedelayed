@@ -93,8 +93,8 @@ def build_eval_transform() -> T.Compose:
 class TemporalSample(NamedTuple):
     past_ticks: int
     x_remote: list[int]
-    x_local: int
-    target: int
+    x_local: list[int]
+    target: list[int]
 
 
 def sample_temporal_indices_train(config: Config):
@@ -104,8 +104,8 @@ def sample_temporal_indices_train(config: Config):
     return TemporalSample(
         past_ticks=past_ticks,
         x_remote=i_frames[:X_REMOTE_LEN],
-        x_local=i_frames[-1],
-        target=i_frames[-1],
+        x_local=[i_frames[-1]],
+        target=[i_frames[-1]],
     )
 
 
@@ -113,8 +113,8 @@ def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
     return TemporalSample(
         past_ticks=past_ticks,
         x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
-        x_local=0,
-        target=0,
+        x_local=[0],
+        target=[0],
     )
 
 
@@ -140,8 +140,8 @@ def collate(
         assert isinstance(sample, dict)
 
         x_remote_src = [decode(sample["remote_frame"][i]) for i in ts.x_remote]
-        x_local_src = [decode(sample["local_frame"][ts.x_local])]
-        target_src = [decode(sample["seg_mask"][ts.target])]
+        x_local_src = [decode(sample["local_frame"][i]) for i in ts.x_local]
+        target_src = [decode(sample["seg_mask"][i]) for i in ts.target]
 
         x_remote_src = [
             compress_decompress(frame, uplink_compression) for frame in x_remote_src
