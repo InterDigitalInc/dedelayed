@@ -122,7 +122,7 @@ def collate(
     batch,
     *,
     sample_temporal_indices: Callable[[], TemporalSample],
-    remote_compression: dict | None,
+    uplink_compression: dict | None,
     transform: T.Transform,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
@@ -144,7 +144,7 @@ def collate(
         target_src = [decode(sample["seg_mask"][ts.target])]
 
         x_remote_src = [
-            compress_decompress(frame, remote_compression) for frame in x_remote_src
+            compress_decompress(frame, uplink_compression) for frame in x_remote_src
         ]
 
         x_remote_i, x_local_i, target_i = transform(
@@ -198,7 +198,7 @@ def evaluate(
     config: Config,
     past_ticks: int,
     past_ticks_offset: int = 0,
-    compression: dict | None,
+    uplink_compression: dict | None,
 ) -> float:
     model.eval()
     past_ticks_true = past_ticks + past_ticks_offset
@@ -222,7 +222,7 @@ def evaluate(
             sample_temporal_indices=functools.partial(
                 sample_temporal_indices_eval, past_ticks, past_ticks_true
             ),
-            remote_compression=compression,
+            uplink_compression=uplink_compression,
             transform=build_eval_transform(),
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
@@ -364,7 +364,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         config=config,
         dataset=runtime.dataset["validation"],
         past_ticks=DEFAULT_EVAL_PAST_TICKS,
-        compression=DEFAULT_EVAL_COMPRESSION,
+        uplink_compression=DEFAULT_EVAL_COMPRESSION,
     )
     runtime.tracker.log_metrics(
         {
@@ -531,7 +531,7 @@ def main(cfg: DictConfig) -> None:
                 sample_temporal_indices=functools.partial(
                     sample_temporal_indices_train, config
                 ),
-                remote_compression=None,
+                uplink_compression=None,
                 transform=build_train_transform(
                     source_size=compute_size(config.remote_size, config.aspect, 1),
                 ),
@@ -588,7 +588,7 @@ def main(cfg: DictConfig) -> None:
             config=config,
             dataset=runtime.dataset["validation"],
             past_ticks=past_ticks,
-            compression=DEFAULT_EVAL_COMPRESSION,
+            uplink_compression=DEFAULT_EVAL_COMPRESSION,
         )
         val_miou_at_past_ticks.append(miou)
 
