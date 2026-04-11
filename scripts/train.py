@@ -90,11 +90,21 @@ def build_eval_transform() -> T.Compose:
     )
 
 
-class TemporalSample(NamedTuple):
-    past_ticks: int
+class Clip(NamedTuple):
+    x_remote: list[torch.Tensor]
+    x_local: list[torch.Tensor]
+    target: list[torch.Tensor]
+
+
+class ClipIdx(NamedTuple):
     x_remote: list[int]
     x_local: list[int]
     target: list[int]
+
+
+class TemporalSample(NamedTuple):
+    past_ticks: int
+    idx: ClipIdx
 
 
 def sample_temporal_indices_train(config: Config):
@@ -103,33 +113,72 @@ def sample_temporal_indices_train(config: Config):
     i_frames = list(range(i_start, i_start + past_ticks + X_REMOTE_LEN))
     return TemporalSample(
         past_ticks=past_ticks,
-        x_remote=i_frames[:X_REMOTE_LEN],
-        x_local=[i_frames[-1]],
-        target=[i_frames[-1]],
+        idx=ClipIdx(
+            x_remote=i_frames[:X_REMOTE_LEN],
+            x_local=[i_frames[-1]],
+            target=[i_frames[-1]],
+        ),
     )
 
 
 def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
     return TemporalSample(
         past_ticks=past_ticks,
-        x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
-        x_local=[0],
-        target=[0],
+        idx=ClipIdx(
+            x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
+            x_local=[0],
+            target=[0],
+        ),
     )
+
+
+def preprocess_clip(
+    sample: dict,
+    idx: ClipIdx,
+    *,
+    uplink_compression: dict | None,
+    transform: T.Transform,
+    x_remote_size: tuple[int, int],
+    x_local_size: tuple[int, int],
+    interpolation: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
+) -> Clip:
+    assert isinstance(sample, dict)
+    decode = cache_by_id(decode_image)
+
+    x_remote_src = [decode(sample["remote_frame"][i]) for i in idx.x_remote]
+    x_local_src = [decode(sample["local_frame"][i]) for i in idx.x_local]
+    target_src = [decode(sample["seg_mask"][i]) for i in idx.target]
+
+    x_remote_src = [
+        compress_decompress(frame, uplink_compression) for frame in x_remote_src
+    ]
+
+    x_remote_i, x_local_i, target_i = transform(
+        [tv_tensors.Image(frame) for frame in x_remote_src],
+        [tv_tensors.Image(frame) for frame in x_local_src],
+        [tv_tensors.Mask(frame) for frame in target_src],
+    )
+
+    x_remote_i = [
+        normalize_uint8(Resize(x_remote_size, interpolation)(frame))
+        for frame in x_remote_i
+    ]
+    x_local_i = [
+        normalize_uint8(Resize(x_local_size, interpolation)(frame))
+        for frame in x_local_i
+    ]
+    target_i = [frame.squeeze(0).to(torch.long) for frame in target_i]
+
+    return Clip(x_remote_i, x_local_i, target_i)
 
 
 def collate(
     batch,
     *,
     sample_temporal_indices: Callable[[], TemporalSample],
-    uplink_compression: dict | None,
-    transform: T.Transform,
-    x_remote_size: tuple[int, int],
-    x_local_size: tuple[int, int],
-    interpolation: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
+    preprocess_clip: Callable[[dict, ClipIdx], Clip],
 ):
     ts = sample_temporal_indices()
-    decode = cache_by_id(decode_image)
 
     x_remote_batch = []
     x_local_batch = []
@@ -137,36 +186,11 @@ def collate(
     past_ticks_batch = []
 
     for sample in batch:
-        assert isinstance(sample, dict)
-
-        x_remote_src = [decode(sample["remote_frame"][i]) for i in ts.x_remote]
-        x_local_src = [decode(sample["local_frame"][i]) for i in ts.x_local]
-        target_src = [decode(sample["seg_mask"][i]) for i in ts.target]
-
-        x_remote_src = [
-            compress_decompress(frame, uplink_compression) for frame in x_remote_src
-        ]
-
-        x_remote_i, x_local_i, target_i = transform(
-            [tv_tensors.Image(frame) for frame in x_remote_src],
-            [tv_tensors.Image(frame) for frame in x_local_src],
-            [tv_tensors.Mask(frame) for frame in target_src],
-        )
-
-        x_remote_i = [
-            normalize_uint8(Resize(x_remote_size, interpolation)(frame))
-            for frame in x_remote_i
-        ]
-        x_local_i = [
-            normalize_uint8(Resize(x_local_size, interpolation)(frame))
-            for frame in x_local_i
-        ]
-        target_i = [frame.squeeze(0) for frame in target_i]
+        clip = preprocess_clip(sample, ts.idx)
         past_ticks_i = torch.tensor(ts.past_ticks, dtype=torch.float32)
-
-        x_remote_batch.extend(x_remote_i)
-        x_local_batch.extend(x_local_i)
-        target_batch.extend(target_i)
+        x_remote_batch.extend(clip.x_remote)
+        x_local_batch.extend(clip.x_local)
+        target_batch.extend(clip.target)
         past_ticks_batch.append(past_ticks_i)
 
     x_remote = torch.stack(x_remote_batch)
@@ -224,10 +248,13 @@ def evaluate_dedelayed_v1_segmentation(
             sample_temporal_indices=functools.partial(
                 sample_temporal_indices_eval, past_ticks, past_ticks_true
             ),
-            uplink_compression=uplink_compression,
-            transform=build_eval_transform(),
-            x_remote_size=x_remote_size,
-            x_local_size=x_local_size,
+            preprocess_clip=functools.partial(
+                preprocess_clip,
+                uplink_compression=uplink_compression,
+                transform=build_eval_transform(),
+                x_remote_size=x_remote_size,
+                x_local_size=x_local_size,
+            ),
         ),
     )
     for x_remote, x_local, gt, past_ticks_t in tqdm(loader, desc="eval", leave=False):
@@ -323,7 +350,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     for i_batch, (x_remote, x_local, seg_label, past_ticks) in enumerate(train_bar):
         x_remote = x_remote.to(runtime.device)
         x_local = x_local.to(runtime.device)
-        seg_label = seg_label[:, 0].to(runtime.device).to(torch.long)
+        seg_label = seg_label[:, 0].to(runtime.device)
         past_ticks = past_ticks.to(runtime.device)
 
         out = runtime.model(x_local[:, :, 0], x_remote, past_ticks)
@@ -524,6 +551,9 @@ def main(cfg: DictConfig) -> None:
     }
     tracker = build_tracker(cfg.tracker, run_id=cfg.run.run_id, hparams=tracker_hparams)
 
+    source_size = compute_size(config.remote_size, config.aspect, 1)
+    x_remote_size = compute_size(config.remote_size, config.aspect, config.ips)
+    x_local_size = compute_size(config.local_size, config.aspect, config.ips)
     dataloader = {
         "train": DataLoader(
             dataset["train"],
@@ -540,14 +570,13 @@ def main(cfg: DictConfig) -> None:
                 sample_temporal_indices=functools.partial(
                     sample_temporal_indices_train, config
                 ),
-                uplink_compression=None,
-                transform=build_train_transform(
-                    source_size=compute_size(config.remote_size, config.aspect, 1),
+                preprocess_clip=functools.partial(
+                    preprocess_clip,
+                    uplink_compression=None,
+                    transform=build_train_transform(source_size=source_size),
+                    x_remote_size=x_remote_size,
+                    x_local_size=x_local_size,
                 ),
-                x_remote_size=compute_size(
-                    config.remote_size, config.aspect, config.ips
-                ),
-                x_local_size=compute_size(config.local_size, config.aspect, config.ips),
             ),
             persistent_workers=True,
         )
