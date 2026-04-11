@@ -39,7 +39,8 @@ from dedelayed.apps.dedelayed_v1.train_state import (
     restore_training_state,
     save_checkpoint,
 )
-from dedelayed.registry import DATASETS, MODELS
+from dedelayed.datasets.factory import build_dataset
+from dedelayed.models.dedelayed_v1.factory import build_fused_model
 from dedelayed.utils.git import commit_version
 from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import compute_size
@@ -272,21 +273,6 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     )
     state.epoch += 1
     save_checkpoint(runtime=runtime, state=state)
-
-
-def build_dataset(dataset_cfg: DictConfig) -> Dataset:
-    dataset_dict = cast(dict, OmegaConf.to_container(dataset_cfg, resolve=True))
-    return DATASETS[dataset_dict["name"]](**dataset_dict["kwargs"])
-
-
-def build_fused_model(model_cfg: DictConfig) -> torch.nn.Module:
-    model_dict = cast(dict, OmegaConf.to_container(model_cfg, resolve=True))
-    name = model_dict["name"]
-    kw = model_dict.get("kwargs", {})
-    return MODELS[name](
-        remote_model=MODELS[f"{name}_remote"](**kw.get("remote_model", {})),
-        local_model=MODELS[f"{name}_local"](**kw.get("local_model", {})),
-    )
 
 
 def init_model(
