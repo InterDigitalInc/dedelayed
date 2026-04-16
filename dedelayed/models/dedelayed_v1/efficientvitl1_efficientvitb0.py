@@ -171,10 +171,13 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0(Dedelayed_v1_Fused):
         self,
         remote_model: Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote,
         local_model: Dedelayed_v1_EfficientViTL1_EfficientViTB0_Local,
+        *,
+        num_classes: int = 19,
     ):
         super().__init__()
         self.remote_model = remote_model
         self.local_model = local_model
+        self.num_classes = num_classes
         self.drop_downlink_features_prob = 0.0
 
     def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: Tensor):

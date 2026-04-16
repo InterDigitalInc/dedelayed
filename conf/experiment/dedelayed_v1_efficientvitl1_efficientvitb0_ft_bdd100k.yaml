@@ -15,7 +15,6 @@ hp:
   config:
     epochs: 10
     batch_size: 1
-    num_classes: 19
     aspect: 1.7778
     remote_size: 720
     local_size: 480
@@ -56,6 +55,7 @@ hp:
   model:
     name: dedelayed_v1_efficientvitl1_efficientvitb0
     kwargs:
+      num_classes: 19
       remote_model:
         temporal_depth: 4
         temporal_width: 96

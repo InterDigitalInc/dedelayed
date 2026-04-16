@@ -137,7 +137,6 @@ def evaluate_dedelayed_v1_segmentation(
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
     logits_interp: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
-    num_classes: int,
     num_workers: int = 0,
 ) -> float:
     model.eval()
@@ -145,7 +144,7 @@ def evaluate_dedelayed_v1_segmentation(
     assert past_ticks_true >= 0
     metric = JaccardIndex(
         task="multiclass",
-        num_classes=num_classes,
+        num_classes=model.num_classes,
         average="macro",
         ignore_index=255,
     ).to(device)
@@ -250,7 +249,6 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
         x_local_size=compute_size(config.local_size, config.aspect, config.ips),
         logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
-        num_classes=config.num_classes,
         num_workers=(
             config.num_workers
             if config.num_workers is not None
@@ -469,7 +467,6 @@ def main(cfg: DictConfig) -> None:
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
             logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
-            num_classes=config.num_classes,
             num_workers=(
                 config.num_workers
                 if config.num_workers is not None
