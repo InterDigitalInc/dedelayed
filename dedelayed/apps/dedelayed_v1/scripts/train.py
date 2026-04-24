@@ -29,9 +29,13 @@ from tqdm.auto import tqdm
 from dedelayed.apps.dedelayed_v1.preprocess import (
     Clip,
     ClipIdx,
+    ComposeTemporal,
+    RandomShift,
+    RandomSpeedup,
     build_eval_transform,
     build_train_transform,
     preprocess_clip,
+    resolve_clip_idx,
 )
 from dedelayed.apps.dedelayed_v1.train_state import (
     TrainRuntime,
@@ -61,15 +65,9 @@ class TemporalSample(NamedTuple):
 
 def sample_temporal_indices_train(config: Config):
     past_ticks = np.random.choice(range(config.min_delay, config.max_delay + 1))
-    i_start = np.random.choice(range(0, (16 - X_REMOTE_LEN) - past_ticks))
-    i_frames = list(range(i_start, i_start + past_ticks + X_REMOTE_LEN))
-    return TemporalSample(
+    return sample_temporal_indices_eval(
         past_ticks=past_ticks,
-        idx=ClipIdx(
-            x_remote=i_frames[:X_REMOTE_LEN],
-            x_local=[i_frames[-1]],
-            target=[i_frames[-1]],
-        ),
+        past_ticks_true=past_ticks,
     )
 
 
@@ -88,6 +86,7 @@ def collate(
     batch,
     *,
     sample_temporal_indices: Callable[[], TemporalSample],
+    temporal_transform: Callable[[ClipIdx], ClipIdx],
     preprocess_clip: Callable[[dict, ClipIdx], Clip],
 ):
     ts = sample_temporal_indices()
@@ -98,7 +97,9 @@ def collate(
     past_ticks_batch = []
 
     for sample in batch:
-        clip = preprocess_clip(sample, ts.idx)
+        idx = resolve_clip_idx(ts.idx, sample, past_ticks_true=ts.past_ticks)
+        idx = temporal_transform(idx)
+        clip = preprocess_clip(sample, idx)
         past_ticks_i = torch.tensor(ts.past_ticks, dtype=torch.float32)
         x_remote_batch.extend(clip.x_remote)
         x_local_batch.extend(clip.x_local)
@@ -159,6 +160,7 @@ def evaluate_dedelayed_v1_segmentation(
             sample_temporal_indices=functools.partial(
                 sample_temporal_indices_eval, past_ticks, past_ticks_true
             ),
+            temporal_transform=ComposeTemporal([]),
             preprocess_clip=functools.partial(
                 preprocess_clip,
                 uplink_compression=uplink_compression,
@@ -407,6 +409,12 @@ def main(cfg: DictConfig) -> None:
                 collate,
                 sample_temporal_indices=functools.partial(
                     sample_temporal_indices_train, config
+                ),
+                temporal_transform=ComposeTemporal(
+                    [
+                        RandomSpeedup(cfg.hp.config.random_speedup_factors),
+                        RandomShift(cfg.hp.config.random_shift_idx_range),
+                    ]
                 ),
                 preprocess_clip=functools.partial(
                     preprocess_clip,

@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import NamedTuple
 
+import numpy as np
 import PIL.Image
 import torch
 from torchvision import tv_tensors
@@ -72,6 +74,71 @@ class ClipIdx(NamedTuple):
     x_remote: list[int]
     x_local: list[int]
     target: list[int]
+
+    def speedup(self, factor: int) -> ClipIdx:
+        return ClipIdx(
+            x_remote=[factor * i for i in self.x_remote],
+            x_local=[factor * i for i in self.x_local],
+            target=[factor * i for i in self.target],
+        )
+
+    def shift(self, offset: int) -> ClipIdx:
+        return ClipIdx(
+            x_remote=[i + offset for i in self.x_remote],
+            x_local=[i + offset for i in self.x_local],
+            target=[i + offset for i in self.target],
+        )
+
+
+class ComposeTemporal:
+    def __init__(self, transforms: list[Callable[[ClipIdx], ClipIdx]]) -> None:
+        self.transforms = transforms
+
+    def __call__(self, idx: ClipIdx) -> ClipIdx:
+        for transform in self.transforms:
+            idx = transform(idx)
+        return idx
+
+
+class RandomSpeedup:
+    def __init__(self, factors: tuple[int, ...]) -> None:
+        self.factors = factors
+
+    def __call__(self, idx: ClipIdx) -> ClipIdx:
+        return idx.speedup(int(np.random.choice(self.factors)))
+
+
+class RandomShift:
+    def __init__(self, idx_range: tuple[int, int]) -> None:
+        self._idx_range = idx_range
+
+    def __call__(self, idx: ClipIdx) -> ClipIdx:
+        lo, hi = self._idx_range
+        idxs = [*idx.x_remote, *idx.x_local, *idx.target]
+        offset_min = lo - min(idxs)
+        offset_max = hi - max(idxs)
+        offset = int(np.random.choice(range(offset_min, offset_max + 1)))
+        return idx.shift(offset)
+
+
+def resolve_clip_idx(
+    idx: ClipIdx,
+    sample: dict,
+    *,
+    past_ticks_true: int,
+    future_ticks_true: int = 0,
+) -> ClipIdx:
+    rel_idx_anchor = sample.get("rel_idx_anchor")
+    if rel_idx_anchor is None:  # If unspecified, assume all frames are labeled.
+        offset = 0
+    else:
+        anchor_in_canonical = {
+            "remote_latest": -past_ticks_true,
+            "local_latest": 0,
+            "target": future_ticks_true,
+        }[rel_idx_anchor]
+        offset = -anchor_in_canonical
+    return idx.shift(offset)
 
 
 def preprocess_clip(

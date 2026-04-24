@@ -53,14 +53,24 @@ class HfTemporalColumnsDataset(Dataset):
         path: str,
         split: str,
         remap: dict[str, str],
-        ref_idx: int = 0,
+        # rel_idx_anchor: None | "remote_latest" | "local_latest" | "target"
+        rel_idx_anchor: str | None = None,
+        rel_idx_zero: int = 0,
+        rel_idx_range: tuple[int, int],
     ) -> None:
         self._dataset = load_dataset(path, split=split)
         self._remap = remap
-        self._ref_idx = ref_idx
+        self._rel_idx_anchor = rel_idx_anchor
+        self._rel_idx_zero = rel_idx_zero
+        self._rel_idx_range = rel_idx_range
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        return remap_and_gather_series(self._dataset[idx], self._remap, self._ref_idx)
+        sample = remap_and_gather_series(
+            self._dataset[idx], self._remap, self._rel_idx_zero
+        )
+        sample["rel_idx_anchor"] = self._rel_idx_anchor
+        sample["rel_idx_range"] = self._rel_idx_range
+        return sample
 
     def __len__(self) -> int:
         return len(self._dataset)
