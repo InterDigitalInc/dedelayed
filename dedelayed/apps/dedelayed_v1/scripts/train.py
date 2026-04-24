@@ -21,6 +21,7 @@ import PIL.Image
 import torch
 from omegaconf import DictConfig, OmegaConf
 from timm.optim.adan import Adan
+from torch import Tensor
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchmetrics.classification import JaccardIndex
 from torchvision.transforms.v2 import Resize
@@ -81,13 +82,28 @@ def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
     )
 
 
+class CollatedBatch(NamedTuple):
+    x_remote: Tensor
+    x_local: Tensor
+    target: Tensor
+    past_ticks: Tensor
+
+    def to(self, device: str | torch.device) -> CollatedBatch:
+        return CollatedBatch(
+            x_remote=self.x_remote.to(device),
+            x_local=self.x_local.to(device),
+            target=self.target.to(device),
+            past_ticks=self.past_ticks.to(device),
+        )
+
+
 def collate(
-    batch,
+    batch: list[dict],
     *,
     sample_temporal_indices: Callable[[], TemporalSample],
     temporal_transform: Callable[[ClipIdx], ClipIdx],
     preprocess_clip: Callable[[dict, ClipIdx], Clip],
-):
+) -> CollatedBatch:
     ts = sample_temporal_indices()
 
     x_remote_batch = []
@@ -119,7 +135,7 @@ def collate(
     # x_local: [B, 3, x_local_len, H_local, W_local], float32
     # target: [B, target_len, H_target, W_target], uint8/int
     # past_ticks: [B], float32 frame offsets
-    return x_remote, x_local, target, past_ticks
+    return CollatedBatch(x_remote, x_local, target, past_ticks)
 
 
 @torch.inference_mode()
@@ -166,22 +182,26 @@ def evaluate_dedelayed_v1_segmentation(
             ),
         ),
     )
-    for x_remote, x_local, gt, past_ticks_t in tqdm(loader, desc="eval", leave=False):
-        x_remote = x_remote.to(device)
-        x_local = x_local.to(device)
-        gt = gt[:, 0].to(device)
-        past_ticks_t = past_ticks_t.to(device)
-        out = model(x_local[:, :, 0], x_remote, past_ticks_t)
-        gt_h, gt_w = gt.shape[-2:]
+    for batch in tqdm(loader, desc="eval", leave=False):
+        assert isinstance(batch, CollatedBatch)
+        batch = batch.to(device)
+        out = model(
+            batch.x_local[:, :, -1],
+            batch.x_remote,
+            batch.past_ticks,
+        )
+        target = batch.target[:, 0]
+        gt_h, gt_w = target.shape[-2:]
         logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
         pred = logits.argmax(dim=1).to(torch.uint8)
-        metric.update(pred, gt)
+        metric.update(pred, target)
     miou = metric.compute().item()
     return miou
 
 
 def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
     config = runtime.cfg.hp.config
+    logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
     log_step_interval = 1 if runtime.cfg.debug else 100
     loss = torch.tensor(float("nan"))
     lr = runtime.optimizer.param_groups[0]["lr"]
@@ -199,18 +219,19 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     )
     num_batches = len(runtime.dataloader["train"])
 
-    for i_batch, (x_remote, x_local, seg_label, past_ticks) in enumerate(train_bar):
-        x_remote = x_remote.to(runtime.device)
-        x_local = x_local.to(runtime.device)
-        seg_label = seg_label[:, 0].to(runtime.device)
-        past_ticks = past_ticks.to(runtime.device)
+    for i_batch, batch in enumerate(train_bar):
+        assert isinstance(batch, CollatedBatch)
+        batch = batch.to(runtime.device)
 
-        out = runtime.model(x_local[:, :, 0], x_remote, past_ticks)
-        logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
-        logits = Resize(seg_label.shape[-2:], interpolation=logits_interp)(
-            out["seg_logits"]
+        out = runtime.model(
+            batch.x_local[:, :, -1],
+            batch.x_remote,
+            batch.past_ticks,
         )
-        loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)(logits, seg_label)
+        target = batch.target[:, 0]
+        gt_h, gt_w = target.shape[-2:]
+        logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
+        loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)(logits, target)
         loss = loss_ce
 
         runtime.optimizer.zero_grad()
