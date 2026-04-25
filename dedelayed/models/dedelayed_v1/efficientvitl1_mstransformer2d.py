@@ -42,49 +42,63 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
         self,
         x_remote: Tensor | None = None,
         *,
-        z_remote: Tensor | None = None,
+        z_encoded: Tensor | None = None,
         x_local_size: tuple[int, int],
         past_ticks: Tensor,
-        output_keys: Sequence[RemoteOutputKey] = (
+        output_keys: Sequence[str] = (
             "downlink_features",
             # "downlink_seg_logits",
         ),
-    ):
-        H_local, W_local = x_local_size
-        output_size = (H_local // 8, W_local // 8)
-
-        if z_remote is None:
+    ) -> dict[str, Tensor]:
+        if z_encoded is None:
             assert x_remote is not None
-            z_remote = self.contextualize(x_remote)
-        z = z_remote
+            z_encoded = self.encode_frames(x_remote)
+        z = self.blend(z_encoded)
+        z = self.prealign(z, past_ticks)
+        return self.head(z, x_local_size=x_local_size, output_keys=output_keys)
+
+    def encode_frames(self, x_remote: Tensor) -> Tensor:
+        x_remote = renormalize(
+            x_remote,
+            src=self.normalization_src,
+            dest=self.normalization_dest,
+            channel_dim=1,
+        )
+        return self.main_model.forward_images(x_remote)
+
+    def blend(self, z_encoded: Tensor) -> Tensor:
+        return self.main_model.temporal_in_proj(z_encoded)
+
+    def prealign(self, z_blended: Tensor, past_ticks: Tensor) -> Tensor:
+        z = z_blended
         z = z + self.main_model.embed_delay(z, past_ticks)
         z = self.main_model.vit3d(z)
         z = einops.rearrange(z, "b c f h w -> b (c f) h w", f=4)
+        return z
 
+    def head(
+        self,
+        z_prealigned: Tensor,
+        x_local_size: tuple[int, int],
+        output_keys: Sequence[str] = (
+            "downlink_features",
+            # "downlink_seg_logits",
+        ),
+    ) -> dict[str, Tensor]:
+        h_local, w_local = x_local_size
+        output_size = (h_local // 8, w_local // 8)
         outputs = {}
 
         if "downlink_seg_logits" in output_keys:
-            outputs["downlink_seg_logits"] = self.main_model.head(z)
+            outputs["downlink_seg_logits"] = self.main_model.head(z_prealigned)
 
         if "downlink_features" in output_keys:
-            z = self.mlp_pre_pool(z)
+            z = self.mlp_pre_pool(z_prealigned)
             z = F.adaptive_avg_pool2d(z, output_size=output_size)
             z = self.mlp_post_pool(z)
             outputs["downlink_features"] = z
 
         return outputs
-
-    def contextualize(self, x: Tensor) -> Tensor:
-        x = renormalize(
-            x, src=self.normalization_src, dest=self.normalization_dest, channel_dim=1
-        )
-        return self.main_model.forward_images(x)
-
-    def encode_image(self, x: Tensor) -> Tensor:
-        z = einops.rearrange(x, "b c h w -> b c 1 h w")
-        z = self.contextualize(z)
-        z = einops.rearrange(z, "b c 1 h w -> b c h w")
-        return z
 
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_local")

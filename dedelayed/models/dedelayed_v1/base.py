@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 import torch.nn as nn
 from torch import Tensor
@@ -16,9 +17,31 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
         self,
         x_remote: Tensor | None = None,
         *,
-        z_remote: Tensor | None = None,
+        z_encoded: Tensor | None = None,
         x_local_size: tuple[int, int],
         past_ticks: Tensor,
+        output_keys: Sequence[str] = ("downlink_features",),
+    ) -> dict[str, Tensor]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def encode_frames(self, x_remote: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def blend(self, z_encoded: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def prealign(self, z_blended: Tensor, past_ticks: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def head(
+        self,
+        z_prealigned: Tensor,
+        x_local_size: tuple[int, int],
+        output_keys: Sequence[str] = ("downlink_features",),
     ) -> dict[str, Tensor]:
         raise NotImplementedError
 
