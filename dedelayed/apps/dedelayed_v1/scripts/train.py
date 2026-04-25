@@ -30,8 +30,7 @@ from dedelayed.apps.dedelayed_v1.preprocess import (
     Clip,
     ClipIdx,
     ComposeTemporal,
-    RandomShift,
-    RandomSpeedup,
+    RandomSpeedupShift,
     build_eval_transform,
     build_train_transform,
     preprocess_clip,
@@ -412,8 +411,7 @@ def main(cfg: DictConfig) -> None:
                 ),
                 temporal_transform=ComposeTemporal(
                     [
-                        RandomSpeedup(cfg.hp.config.random_speedup_factors),
-                        RandomShift(cfg.hp.config.random_shift_idx_range),
+                        RandomSpeedupShift(**cfg.hp.config.random_speedup_shift),
                     ]
                 ),
                 preprocess_clip=functools.partial(

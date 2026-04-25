@@ -100,25 +100,24 @@ class ComposeTemporal:
         return idx
 
 
-class RandomSpeedup:
-    def __init__(self, factors: tuple[int, ...]) -> None:
-        self.factors = factors
+class RandomSpeedupShift:
+    def __init__(self, speedups: tuple[int, ...], idx_range: tuple[int, int]) -> None:
+        self._speedups = tuple(int(s) for s in speedups)
+        self._idx_range = tuple(int(i) for i in idx_range)
 
     def __call__(self, idx: ClipIdx) -> ClipIdx:
-        return idx.speedup(int(np.random.choice(self.factors)))
-
-
-class RandomShift:
-    def __init__(self, idx_range: tuple[int, int]) -> None:
-        self._idx_range = idx_range
-
-    def __call__(self, idx: ClipIdx) -> ClipIdx:
-        lo, hi = self._idx_range
         idxs = [*idx.x_remote, *idx.x_local, *idx.target]
-        offset_min = lo - min(idxs)
-        offset_max = hi - max(idxs)
+        min_idx = min(idxs)
+        max_idx = max(idxs)
+        lo, hi = self._idx_range
+        speedups = [s for s in self._speedups if s * (max_idx - min_idx) <= hi - lo]
+        speedup = int(np.random.choice(speedups))
+
+        offset_min = lo - speedup * min_idx
+        offset_max = hi - speedup * max_idx
         offset = int(np.random.choice(range(offset_min, offset_max + 1)))
-        return idx.shift(offset)
+
+        return idx.speedup(speedup).shift(offset)
 
 
 def resolve_clip_idx(

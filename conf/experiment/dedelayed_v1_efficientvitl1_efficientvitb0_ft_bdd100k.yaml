@@ -25,8 +25,9 @@ hp:
     ops: 8
     drop_path: 0.1
     drop_downlink_features_prob: 0.1667
-    random_speedup_factors: [1]
-    random_shift_idx_range: "${hp.dataset.train.kwargs.rel_idx_range}"
+    random_speedup_shift:
+      speedups: [1]
+      idx_range: "${hp.dataset.train.kwargs.rel_idx_range}"
 
   optim:
     max_lr: 1e-4
