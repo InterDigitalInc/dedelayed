@@ -110,13 +110,10 @@ def collate(
     target = torch.stack(target_batch)
     past_ticks = torch.stack(past_ticks_batch)
 
-    x_remote = einops.rearrange(
-        x_remote, "(b f) c h w -> b c f h w", b=len(batch)
-    ).contiguous()
-    x_local = einops.rearrange(
-        x_local, "(b f) c h w -> b c f h w", b=len(batch)
-    ).contiguous()
-    target = einops.rearrange(target, "(b f) h w -> b f h w", b=len(batch)).contiguous()
+    B = len(batch)
+    x_remote = einops.rearrange(x_remote, "(b f) c h w -> b c f h w", b=B).contiguous()
+    x_local = einops.rearrange(x_local, "(b f) c h w -> b c f h w", b=B).contiguous()
+    target = einops.rearrange(target, "(b f) h w -> b f h w", b=B).contiguous()
 
     # x_remote: [B, 3, x_remote_len, H_remote, W_remote], float32
     # x_local: [B, 3, x_local_len, H_local, W_local], float32
