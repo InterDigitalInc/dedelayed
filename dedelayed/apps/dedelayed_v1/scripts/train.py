@@ -59,11 +59,13 @@ X_REMOTE_LEN = 4
 
 
 class TemporalSample(NamedTuple):
-    past_ticks: int
     idx: ClipIdx
+    past_ticks: int
+    past_ticks_true: int  # For evaluation only. Models RTT delay mismatch / jitter.
+    future_ticks_true: int = 0  # For evaluation only. Models local inference delay.
 
 
-def sample_temporal_indices_train(config: Config):
+def sample_temporal_indices_train(config: Config) -> TemporalSample:
     past_ticks = np.random.choice(range(config.min_delay, config.max_delay + 1))
     return sample_temporal_indices_eval(
         past_ticks=past_ticks,
@@ -71,14 +73,20 @@ def sample_temporal_indices_train(config: Config):
     )
 
 
-def sample_temporal_indices_eval(past_ticks: int, past_ticks_true: int):
+def sample_temporal_indices_eval(
+    past_ticks: int,
+    past_ticks_true: int,
+    future_ticks_true: int = 0,
+) -> TemporalSample:
     return TemporalSample(
-        past_ticks=past_ticks,
         idx=ClipIdx(
             x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
             x_local=[0],
-            target=[0],
+            target=[future_ticks_true],
         ),
+        past_ticks=past_ticks,
+        past_ticks_true=past_ticks_true,
+        future_ticks_true=future_ticks_true,
     )
 
 
@@ -112,7 +120,12 @@ def collate(
     past_ticks_batch = []
 
     for sample in batch:
-        idx = resolve_clip_idx(ts.idx, sample, past_ticks_true=ts.past_ticks)
+        idx = resolve_clip_idx(
+            ts.idx,
+            sample,
+            past_ticks_true=ts.past_ticks_true,
+            future_ticks_true=ts.future_ticks_true,
+        )
         idx = temporal_transform(idx)
         clip = preprocess_clip(sample, idx)
         past_ticks_i = torch.tensor(ts.past_ticks, dtype=torch.float32)
@@ -146,6 +159,7 @@ def evaluate_dedelayed_v1_segmentation(
     *,
     past_ticks: int,
     past_ticks_offset: int = 0,
+    future_ticks_true: int = 0,
     uplink_compression: dict | None,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
@@ -155,6 +169,7 @@ def evaluate_dedelayed_v1_segmentation(
     model.eval()
     past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
+    assert future_ticks_true >= 0
     metric = JaccardIndex(
         task="multiclass",
         num_classes=model.num_classes,
@@ -170,7 +185,10 @@ def evaluate_dedelayed_v1_segmentation(
         collate_fn=functools.partial(
             collate,
             sample_temporal_indices=functools.partial(
-                sample_temporal_indices_eval, past_ticks, past_ticks_true
+                sample_temporal_indices_eval,
+                past_ticks,
+                past_ticks_true,
+                future_ticks_true,
             ),
             temporal_transform=ComposeTemporal([]),
             preprocess_clip=functools.partial(
