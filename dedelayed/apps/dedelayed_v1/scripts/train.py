@@ -259,15 +259,23 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             batch.x_remote,
             past_ticks=batch.past_ticks,
             x_local_size=x_local_size,
+            output_keys=("downlink_features", "downlink_seg_logits"),
         )
         downlink_features = out_remote["downlink_features"].clone()
+        remote_only_loss = compute_loss(out_remote["downlink_seg_logits"], target)
 
         out_local = model.local_model(x_local, downlink_features=downlink_features)
         fused_loss = compute_loss(out_local["seg_logits"], target)
+
         downlink_features = torch.zeros_like(downlink_features)
         out_local_only = model.local_model(x_local, downlink_features=downlink_features)
         local_only_loss = compute_loss(out_local_only["seg_logits"], target)
-        loss = fused_loss + config.loss_weight.local_only * local_only_loss
+
+        loss = (
+            fused_loss
+            + config.loss_weight.remote_only * remote_only_loss
+            + config.loss_weight.local_only * local_only_loss
+        )
 
         runtime.optimizer.zero_grad()
         loss.backward()

@@ -26,6 +26,7 @@ hp:
     drop_path: 0.1
     loss_weight:
       local_only: 0.1667
+      remote_only: 0.25
     random_speedup_shift:
       speedups: [1]
       idx_range: "${hp.dataset.train.kwargs.rel_idx_range}"
