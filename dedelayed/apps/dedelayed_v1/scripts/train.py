@@ -44,6 +44,7 @@ from dedelayed.apps.dedelayed_v1.train_state import (
     save_checkpoint,
 )
 from dedelayed.datasets.factory import build_dataset
+from dedelayed.models.dedelayed_v1.base import Dedelayed_v1_Fused
 from dedelayed.models.dedelayed_v1.factory import build_fused_model
 from dedelayed.utils.git import commit_version
 from dedelayed.utils.optim import RaisedCosineLR
@@ -221,6 +222,8 @@ def evaluate_dedelayed_v1_segmentation(
 
 def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
     config = runtime.cfg.hp.config
+    model = runtime.model
+    assert isinstance(model, Dedelayed_v1_Fused)
     logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
     log_step_interval = 1 if runtime.cfg.debug else 100
     loss = torch.tensor(float("nan"))
@@ -242,12 +245,29 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     for i_batch, batch in enumerate(train_bar):
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(runtime.device)
-
-        out = runtime.model(
-            batch.x_local[:, :, -1],
-            batch.x_remote,
-            batch.past_ticks,
+        x_local = batch.x_local[:, :, -1]
+        x_local_size = x_local.shape[-2:]
+        drop_downlink_features = (
+            torch.rand((), device=runtime.device).item()
+            < config.drop_downlink_features_prob
         )
+
+        if drop_downlink_features:
+            downlink_shape = model.local_model.downlink_features_shape(x_local_size)
+            downlink_features = torch.zeros(
+                (x_local.shape[0], *downlink_shape),
+                device=x_local.device,
+                dtype=x_local.dtype,
+            )
+        else:
+            out_remote = model.remote_model(
+                batch.x_remote,
+                past_ticks=batch.past_ticks,
+                x_local_size=x_local_size,
+            )
+            downlink_features = out_remote["downlink_features"].clone()
+
+        out = model.local_model(x_local, downlink_features)
         target = batch.target[:, 0]
         gt_h, gt_w = target.shape[-2:]
         logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
@@ -257,7 +277,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         runtime.optimizer.zero_grad()
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(
-            runtime.model.parameters(), 5.0, norm_type=2.0
+            model.parameters(), 5.0, norm_type=2.0
         )
         lr = runtime.optimizer.param_groups[0]["lr"]
         runtime.optimizer.step()
@@ -358,8 +378,6 @@ def init_model(
         if hasattr(module, "drop_path"):
             module.drop_path = cfg.hp.config.drop_path
 
-    model.drop_downlink_features_prob = cfg.hp.config.drop_downlink_features_prob
-
     frozen_modules: list[torch.nn.Module] = [
         model.remote_model.main_model.image_model,
         # model.local_model.image_model,
@@ -380,8 +398,10 @@ def init_model(
         icon = "🔥 " if param.requires_grad else "❄️ "
         print(f"{icon} {str(list(param.shape)):<24} {param_name}")
 
-    model.remote_model.compile(mode="max-autotune")
-    model.local_model.compile(mode="max-autotune")
+    compile_kwargs: dict = {"mode": "max-autotune"}
+    model.remote_model.compile(**compile_kwargs)
+    model.local_model.compile(**compile_kwargs)
+    model.compile(**compile_kwargs)
 
     return model, frozen_modules
 
