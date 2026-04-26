@@ -2,6 +2,8 @@
 # All rights reserved.
 # See LICENSE under the root folder.
 
+import copy
+
 import einops
 import torch
 
@@ -33,7 +35,7 @@ class EfficientViTSeg3D(torch.nn.Module):
         self.image_model = create_efficientvit_seg_model(
             name, pretrained=pretrained_image_model
         )
-        head = self.image_model.head
+        head = copy.deepcopy(self.image_model.head)
         segout = head.output_ops[head.output_keys.index("segout")]
         head_width = segout.op_list[0].conv.in_channels
         segout_ops = list(segout.op_list)
