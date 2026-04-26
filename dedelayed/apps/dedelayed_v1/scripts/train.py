@@ -277,29 +277,49 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             lr=f"{metrics['train/step/lr']:.2g}",
         )
 
-    metrics["val/epoch/miou"] = evaluate_dedelayed_v1_segmentation(
-        model=runtime.model,
-        device=runtime.device,
-        dataset=runtime.dataset["validation"],
-        past_ticks=DEFAULT_EVAL_PAST_TICKS,
-        uplink_compression=DEFAULT_EVAL_COMPRESSION,
-        x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
-        x_local_size=compute_size(config.local_size, config.aspect, config.ips),
-        logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
-        num_workers=(
-            config.num_workers
-            if config.num_workers is not None
-            else len(os.sched_getaffinity(0))
-        ),
-    )
+    eval_specs = [
+        *[
+            {
+                "metric_name": f"val/epoch/miou_at_past_ticks/{past_ticks}",
+                "past_ticks": past_ticks,
+            }
+            for past_ticks in range(config.min_delay, config.max_delay + 1)
+        ],
+    ]
+
+    for spec in eval_specs:
+        metrics[spec["metric_name"]] = evaluate_dedelayed_v1_segmentation(
+            model=runtime.model,
+            device=runtime.device,
+            dataset=runtime.dataset["validation"],
+            past_ticks=spec["past_ticks"],
+            uplink_compression=DEFAULT_EVAL_COMPRESSION,
+            x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
+            x_local_size=compute_size(config.local_size, config.aspect, config.ips),
+            logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
+            num_workers=(
+                config.num_workers
+                if config.num_workers is not None
+                else len(os.sched_getaffinity(0))
+            ),
+        )
+
+    metrics["val/epoch/miou"] = metrics[
+        f"val/epoch/miou_at_past_ticks/{DEFAULT_EVAL_PAST_TICKS}"
+    ]
+
     runtime.tracker.log_metrics(
         {
             "epoch": state.epoch + 1,
-            "val/epoch/miou": metrics["val/epoch/miou"],
+            **{k: v for k, v in metrics.items() if k.startswith("val/epoch/")},
         },
         step=state.global_step,
     )
     runtime.cfg.metrics.run.val_miou = metrics["val/epoch/miou"]
+    runtime.cfg.metrics.run.val_miou_at_past_ticks = [
+        metrics[f"val/epoch/miou_at_past_ticks/{past_ticks}"]
+        for past_ticks in range(config.min_delay, config.max_delay + 1)
+    ]
 
     epoch_bar.set_postfix(
         loss=f"{metrics['train/step/loss']:.3g}",
@@ -498,38 +518,7 @@ def main(cfg: DictConfig) -> None:
         assert state.epoch == epoch
         run_epoch(runtime=runtime, state=state, epoch_bar=epoch_bar)
 
-    val_miou_at_past_ticks = []
-    for past_ticks in range(6):
-        miou = evaluate_dedelayed_v1_segmentation(
-            model=runtime.model,
-            device=runtime.device,
-            dataset=runtime.dataset["validation"],
-            past_ticks=past_ticks,
-            uplink_compression=DEFAULT_EVAL_COMPRESSION,
-            x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
-            x_local_size=compute_size(config.local_size, config.aspect, config.ips),
-            logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
-            num_workers=(
-                config.num_workers
-                if config.num_workers is not None
-                else len(os.sched_getaffinity(0))
-            ),
-        )
-        val_miou_at_past_ticks.append(miou)
-
-    cfg.metrics.run.val_miou_at_past_ticks = val_miou_at_past_ticks
     cfg.run.utc_end_time = datetime.now(timezone.utc).isoformat()
-
-    tracker.log_metrics(
-        {
-            "epoch": state.epoch,
-            **{
-                f"val/epoch/miou_at_past_ticks/{i}": val
-                for i, val in enumerate(val_miou_at_past_ticks)
-            },
-        },
-        step=state.global_step,
-    )
 
     tracker.close()
 
