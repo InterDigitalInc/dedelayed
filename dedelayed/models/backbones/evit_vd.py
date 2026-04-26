@@ -33,10 +33,15 @@ class EfficientViTSeg3D(torch.nn.Module):
         self.image_model = create_efficientvit_seg_model(
             name, pretrained=pretrained_image_model
         )
+        head = self.image_model.head
+        segout = head.output_ops[head.output_keys.index("segout")]
+        head_width = segout.op_list[0].conv.in_channels
+        segout_ops = list(segout.op_list)
+        segout_ops[-1] = segout_ops[-1].conv
         self.temporal_in_proj = (
             torch.nn.Identity()
-            if temporal_width == 256
-            else torch.nn.Conv3d(256, temporal_width, kernel_size=1, bias=False)
+            if temporal_width == head_width
+            else torch.nn.Conv3d(head_width, temporal_width, kernel_size=1, bias=False)
         )
         self.vit3d = torch.nn.Sequential(
             *[
@@ -58,13 +63,13 @@ class EfficientViTSeg3D(torch.nn.Module):
             ConvNormActND(
                 2,
                 in_channels=4 * temporal_width,
-                out_channels=256,
+                out_channels=head_width,
                 norm_layer=GroupNorm8,
                 act_layer=torch.nn.Identity,
                 kernel_size=1,
             ),
-            *self.image_model.head.middle.op_list,
-            torch.nn.Conv2d(256, 19, kernel_size=1, stride=1),
+            *head.middle.op_list,
+            *segout_ops,
         )
         self.learnable_delay_embedding = torch.nn.Sequential(
             ConvNormActND(
