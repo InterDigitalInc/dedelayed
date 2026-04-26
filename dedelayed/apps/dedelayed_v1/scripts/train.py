@@ -224,6 +224,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     config = runtime.cfg.hp.config
     model = runtime.model
     assert isinstance(model, Dedelayed_v1_Fused)
+    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=255)
     logits_interp = PIL.Image.Resampling[config.seg_logits_interpolation]
     log_step_interval = 1 if runtime.cfg.debug else 100
     loss = torch.tensor(float("nan"))
@@ -242,38 +243,31 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     )
     num_batches = len(runtime.dataloader["train"])
 
+    def compute_loss(seg_logits: Tensor, target: Tensor) -> Tensor:
+        resize_logits = Resize(target.shape[-2:], interpolation=logits_interp)
+        return loss_fn(resize_logits(seg_logits), target)
+
     for i_batch, batch in enumerate(train_bar):
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(runtime.device)
         torch.compiler.cudagraph_mark_step_begin()
         x_local = batch.x_local[:, :, -1]
         x_local_size = x_local.shape[-2:]
-        drop_downlink_features = (
-            torch.rand((), device=runtime.device).item()
-            < config.drop_downlink_features_prob
-        )
-
-        if drop_downlink_features:
-            downlink_shape = model.local_model.downlink_features_shape(x_local_size)
-            downlink_features = torch.zeros(
-                (x_local.shape[0], *downlink_shape),
-                device=x_local.device,
-                dtype=x_local.dtype,
-            )
-        else:
-            out_remote = model.remote_model(
-                batch.x_remote,
-                past_ticks=batch.past_ticks,
-                x_local_size=x_local_size,
-            )
-            downlink_features = out_remote["downlink_features"].clone()
-
-        out = model.local_model(x_local, downlink_features)
         target = batch.target[:, 0]
-        gt_h, gt_w = target.shape[-2:]
-        logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
-        loss_ce = torch.nn.CrossEntropyLoss(ignore_index=255)(logits, target)
-        loss = loss_ce
+
+        out_remote = model.remote_model(
+            batch.x_remote,
+            past_ticks=batch.past_ticks,
+            x_local_size=x_local_size,
+        )
+        downlink_features = out_remote["downlink_features"].clone()
+
+        out_local = model.local_model(x_local, downlink_features=downlink_features)
+        fused_loss = compute_loss(out_local["seg_logits"], target)
+        downlink_features = torch.zeros_like(downlink_features)
+        out_local_only = model.local_model(x_local, downlink_features=downlink_features)
+        local_only_loss = compute_loss(out_local_only["seg_logits"], target)
+        loss = fused_loss + config.loss_weight.local_only * local_only_loss
 
         runtime.optimizer.zero_grad()
         loss.backward()

@@ -24,7 +24,8 @@ hp:
     ips: 32
     ops: 8
     drop_path: 0.1
-    drop_downlink_features_prob: 0.1667
+    loss_weight:
+      local_only: 0.1667
     random_speedup_shift:
       speedups: [1]
       idx_range: "${hp.dataset.train.kwargs.rel_idx_range}"
