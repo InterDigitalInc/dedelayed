@@ -154,7 +154,7 @@ def collate(
 
 @torch.inference_mode()
 def evaluate_dedelayed_v1_segmentation(
-    model: torch.nn.Module,
+    model: Dedelayed_v1_Fused,
     device: str,
     dataset: Dataset,
     *,
@@ -162,6 +162,7 @@ def evaluate_dedelayed_v1_segmentation(
     past_ticks_offset: int = 0,
     future_ticks_true: int = 0,
     local_only: bool = False,
+    remote_only: bool = False,
     uplink_compression: dict | None,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
@@ -169,6 +170,7 @@ def evaluate_dedelayed_v1_segmentation(
     num_workers: int = 0,
 ) -> float:
     model.eval()
+    assert not (local_only and remote_only)
     past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
     assert future_ticks_true >= 0
@@ -205,15 +207,28 @@ def evaluate_dedelayed_v1_segmentation(
     for batch in tqdm(loader, desc="eval", leave=False):
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(device)
-        out = model(
-            batch.x_local[:, :, -1],
+        x_local = batch.x_local[:, :, -1]
+        output_keys = (
+            ("downlink_features", "downlink_seg_logits")
+            if remote_only
+            else ("downlink_features",)
+        )
+        out_remote = model.remote_model(
             batch.x_remote,
-            batch.past_ticks,
-            local_only=local_only,
+            past_ticks=batch.past_ticks,
+            x_local_size=x_local.shape[-2:],
+            output_keys=output_keys,
+        )
+        downlink_features = out_remote["downlink_features"].clone()
+        if local_only:
+            downlink_features = torch.zeros_like(downlink_features)
+        out_local = model.local_model(x_local, downlink_features=downlink_features)
+        seg_logits = (
+            out_remote["downlink_seg_logits"] if remote_only else out_local["seg_logits"]
         )
         target = batch.target[:, 0]
         gt_h, gt_w = target.shape[-2:]
-        logits = Resize((gt_h, gt_w), interpolation=logits_interp)(out["seg_logits"])
+        logits = Resize((gt_h, gt_w), interpolation=logits_interp)(seg_logits)
         pred = logits.argmax(dim=1).to(torch.uint8)
         metric.update(pred, target)
     miou = metric.compute().item()
@@ -314,15 +329,24 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             "metric_name": "val/epoch/miou_local_only",
             "local_only": True,
         },
+        *[
+            {
+                "metric_name": f"val/epoch/miou_remote_only_at_past_ticks/{past_ticks}",
+                "past_ticks": past_ticks,
+                "remote_only": True,
+            }
+            for past_ticks in range(config.min_delay, config.max_delay + 1)
+        ],
     ]
 
     for spec in eval_specs:
         metrics[spec["metric_name"]] = evaluate_dedelayed_v1_segmentation(
-            model=runtime.model,
+            model=model,
             device=runtime.device,
             dataset=runtime.dataset["validation"],
             past_ticks=spec.get("past_ticks", 0),
             local_only=spec.get("local_only", False),
+            remote_only=spec.get("remote_only", False),
             uplink_compression=DEFAULT_EVAL_COMPRESSION,
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
@@ -351,6 +375,10 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         for past_ticks in range(config.min_delay, config.max_delay + 1)
     ]
     runtime.cfg.metrics.run.val_miou_local_only = metrics["val/epoch/miou_local_only"]
+    runtime.cfg.metrics.run.val_miou_remote_only_at_past_ticks = [
+        metrics[f"val/epoch/miou_remote_only_at_past_ticks/{past_ticks}"]
+        for past_ticks in range(config.min_delay, config.max_delay + 1)
+    ]
 
     epoch_bar.set_postfix(
         loss=f"{metrics['train/step/loss']:.3g}",
