@@ -74,3 +74,4 @@ metrics:
   run:
     val_miou: null
     val_miou_at_past_ticks: null
+    val_miou_local_only: null

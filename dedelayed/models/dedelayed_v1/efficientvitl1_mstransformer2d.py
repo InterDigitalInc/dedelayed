@@ -158,11 +158,17 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D(Dedelayed_v1_Fused):
         self.num_classes = num_classes
         self.drop_downlink_features_prob = 0.0
 
-    def forward(self, x_local: Tensor, x_remote: Tensor, past_ticks: Tensor):
+    def forward(
+        self,
+        x_local: Tensor,
+        x_remote: Tensor,
+        past_ticks: Tensor,
+        local_only: bool = False,
+    ):
         drop_downlink_features = self.training and (
             torch.rand((), device=x_local.device).item()
             < self.drop_downlink_features_prob
-        )
+        ) or local_only
 
         if drop_downlink_features:
             downlink_features = torch.zeros(

@@ -157,9 +157,10 @@ def evaluate_dedelayed_v1_segmentation(
     device: str,
     dataset: Dataset,
     *,
-    past_ticks: int,
+    past_ticks: int = 0,
     past_ticks_offset: int = 0,
     future_ticks_true: int = 0,
+    local_only: bool = False,
     uplink_compression: dict | None,
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
@@ -207,6 +208,7 @@ def evaluate_dedelayed_v1_segmentation(
             batch.x_local[:, :, -1],
             batch.x_remote,
             batch.past_ticks,
+            local_only=local_only,
         )
         target = batch.target[:, 0]
         gt_h, gt_w = target.shape[-2:]
@@ -285,6 +287,10 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             }
             for past_ticks in range(config.min_delay, config.max_delay + 1)
         ],
+        {
+            "metric_name": "val/epoch/miou_local_only",
+            "local_only": True,
+        },
     ]
 
     for spec in eval_specs:
@@ -292,7 +298,8 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             model=runtime.model,
             device=runtime.device,
             dataset=runtime.dataset["validation"],
-            past_ticks=spec["past_ticks"],
+            past_ticks=spec.get("past_ticks", 0),
+            local_only=spec.get("local_only", False),
             uplink_compression=DEFAULT_EVAL_COMPRESSION,
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
@@ -320,6 +327,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         metrics[f"val/epoch/miou_at_past_ticks/{past_ticks}"]
         for past_ticks in range(config.min_delay, config.max_delay + 1)
     ]
+    runtime.cfg.metrics.run.val_miou_local_only = metrics["val/epoch/miou_local_only"]
 
     epoch_bar.set_postfix(
         loss=f"{metrics['train/step/loss']:.3g}",

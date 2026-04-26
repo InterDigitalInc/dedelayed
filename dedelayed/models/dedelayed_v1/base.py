@@ -67,5 +67,6 @@ class Dedelayed_v1_Fused(nn.Module, ABC):
         x_local: Tensor,
         x_remote: Tensor,
         past_ticks: Tensor,
+        local_only: bool = False,
     ) -> dict[str, Tensor]:
         raise NotImplementedError
