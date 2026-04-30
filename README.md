@@ -26,27 +26,40 @@ pip install -e .
 
 
 
+## Quick Start (Demo)
+
+```python
+uv run python dedelayed/apps/dedelayed_v1/scripts/demo.py samples/input/source_video.mp4 --model_name=dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k
+```
+
+
+
+
 ## Quick Start (Inference)
 
 ```python
 import torch
-from dedelayed.registry import MODELS
+from dedelayed.zoo import get_model
 
-# Choose a model:
-# model_name = "dedelayed_v1_efficientvitl1_mstransformer2d"  # used in CVPR 2026 paper
-# model_name = "dedelayed_v1_efficientvitl1_efficientvitb0"  # finetuned on pre-trained MIT checkpoints
+device = "cuda"
+model_name = "dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k"  # CVPR 2026
+model = get_model(model_name, pretrained=True).eval().to(device=device)
 
-remote_model = MODELS[f"{model_name}_remote"]()
-local_model = MODELS[f"{model_name}_local"]()
-model = MODELS[f"{model_name}"](
-    remote_model=remote_model,
-    local_model=local_model,
-)
+x_remote = torch.rand((1, 3, 4, 720, 1248), device=device)
+x_local = torch.rand((1, 3, 480, 832), device=device)
+past_ticks = torch.full((1,), 5.0, device=device)
 
-x_remote = torch.rand(1, 3, 4, 720, 1248)
-x_local = torch.rand(1, 3, 480, 832)
-out = model(x_local, x_remote, past_ticks=5)
-segmentation = out["seg_logits"].argmax(dim=1)
+with torch.inference_mode():
+    out_remote = model.remote_model(
+        x_remote,
+        past_ticks=past_ticks,
+        x_local_size=x_local.shape[-2:],
+    )
+    out_local = model.local_model(
+        x_local,
+        downlink_features=out_remote["downlink_features"],
+    )
+    pred_mask = out_local["seg_logits"].argmax(dim=1)
 ```
 
 
@@ -98,4 +111,3 @@ This project is distributed under the BSD license included in `LICENSE`. The not
   note      = {To appear}
 }
 ```
-
