@@ -61,3 +61,15 @@ def get_model(
         model.load_state_dict(ckpt["model_state_dict"])
 
     return model
+
+
+def get_model_from_checkpoint(
+    path: str | Path,
+    *,
+    map_location: str | torch.device = "cpu",
+    strict: bool = True,
+) -> torch.nn.Module:
+    ckpt = torch.load(Path(path).expanduser(), map_location=map_location)
+    model = build_fused_model(ckpt["meta"]["hp"]["model"])
+    model.load_state_dict(ckpt["model_state_dict"], strict=strict)
+    return model
