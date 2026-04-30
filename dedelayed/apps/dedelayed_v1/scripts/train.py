@@ -245,6 +245,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
     for i_batch, batch in enumerate(train_bar):
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(runtime.device)
+        torch.compiler.cudagraph_mark_step_begin()
         x_local = batch.x_local[:, :, -1]
         x_local_size = x_local.shape[-2:]
         drop_downlink_features = (
