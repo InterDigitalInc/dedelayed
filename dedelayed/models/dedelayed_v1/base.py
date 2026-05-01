@@ -18,8 +18,8 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
         x_remote: Tensor | None = None,
         *,
         z_encoded: Tensor | None = None,
-        x_local_size: tuple[int, int],
         past_ticks: Tensor,
+        x_local_size: tuple[int, int],
         output_keys: Sequence[str] = ("downlink_features",),
     ) -> dict[str, Tensor]:
         raise NotImplementedError
