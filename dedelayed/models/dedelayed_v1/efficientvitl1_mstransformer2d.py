@@ -32,6 +32,7 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
         normalization_dest: ImageNormalizationKind = "minus1_1",
     ):
         super().__init__()
+        self.context_len = 4
         self.normalization_src: ImageNormalizationKind = normalization_src
         self.normalization_dest: ImageNormalizationKind = normalization_dest
         self.main_model = EfficientViTSeg3D()
@@ -99,6 +100,18 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
             outputs["downlink_features"] = z
 
         return outputs
+
+    def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
+        z = self.encode_frames(x_remote_latest[:, :, None])
+        return z.expand(-1, -1, self.context_len, -1, -1).clone()
+
+    def encode_step(
+        self, x_remote_latest: Tensor, z_propagated: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        z_next = self.encode_frames(x_remote_latest[:, :, None])
+        z_propagated = torch.cat((z_propagated[:, :, 1:], z_next), dim=2)
+        z_blended = self.blend(z_propagated)
+        return z_blended, z_propagated
 
 
 @register_model("dedelayed_v1_efficientvitl1_mstransformer2d_local")

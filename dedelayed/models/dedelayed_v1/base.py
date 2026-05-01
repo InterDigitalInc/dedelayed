@@ -45,6 +45,16 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
     ) -> dict[str, Tensor]:
         raise NotImplementedError
 
+    @abstractmethod
+    def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def encode_step(
+        self, x_remote_latest: Tensor, z_propagated: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        raise NotImplementedError
+
 
 class Dedelayed_v1_Local(nn.Module, ABC):
     @abstractmethod
