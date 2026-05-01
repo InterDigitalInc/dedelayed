@@ -25,6 +25,7 @@ hp:
     ops: 8
     drop_path: 0.1
     loss_weight:
+      fused: 1.0
       local_only: 1.0
       remote_only: 0.25
     random_speedup_shift:

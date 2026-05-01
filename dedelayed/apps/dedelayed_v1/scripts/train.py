@@ -293,7 +293,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         local_only_loss = compute_loss(out_local_only["seg_logits"], target)
 
         loss = (
-            fused_loss
+            config.loss_weight.fused * fused_loss
             + config.loss_weight.remote_only * remote_only_loss
             + config.loss_weight.local_only * local_only_loss
         )
