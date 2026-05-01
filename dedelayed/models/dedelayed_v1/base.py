@@ -15,9 +15,8 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
     @abstractmethod
     def forward(
         self,
-        x_remote: Tensor | None = None,
+        x_remote: Tensor,
         *,
-        z_encoded: Tensor | None = None,
         past_ticks: Tensor,
         x_local_size: tuple[int, int],
         output_keys: Sequence[str] = ("downlink_features",),

@@ -41,9 +41,8 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
 
     def forward(
         self,
-        x_remote: Tensor | None = None,
+        x_remote: Tensor,
         *,
-        z_encoded: Tensor | None = None,
         past_ticks: Tensor,
         x_local_size: tuple[int, int],
         output_keys: Sequence[str] = (
@@ -51,10 +50,8 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
             # "downlink_seg_logits",
         ),
     ) -> dict[str, Tensor]:
-        if z_encoded is None:
-            assert x_remote is not None
-            z_encoded = self.encode_frames(x_remote)
-        z = self.blend(z_encoded)
+        z = self.encode_frames(x_remote)
+        z = self.blend(z)
         z = self.prealign(z, past_ticks)
         return self.head(z, x_local_size=x_local_size, output_keys=output_keys)
 
