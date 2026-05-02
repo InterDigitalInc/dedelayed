@@ -393,11 +393,7 @@ def run_validation_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, 
             x_remote_size=compute_size(config.remote_size, config.aspect, config.ips),
             x_local_size=compute_size(config.local_size, config.aspect, config.ips),
             logits_interp=PIL.Image.Resampling[config.seg_logits_interpolation],
-            num_workers=(
-                config.num_workers
-                if config.num_workers is not None
-                else len(os.sched_getaffinity(0))
-            ),
+            num_workers=runtime.dataloader["train"].num_workers,
         )
         metrics[f"val/epoch/miou_at_past_ticks/{past_ticks}"] = eval_metrics["miou"]
         metrics[f"val/epoch/miou_remote_only_at_past_ticks/{past_ticks}"] = (
