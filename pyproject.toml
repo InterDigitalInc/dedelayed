@@ -43,6 +43,7 @@ dependencies = [
     "torchvision>=0.14.1",
     "torchvision>=0.20.2 ; python_version >= '3.13'",
     "transformers>=4.46.0",
+    "transformers>=5.0.0 ; python_version >= '3.10'",
     "typing-extensions>=4.12.2",
 ]
 
