@@ -18,7 +18,7 @@ backends:
   #   kwargs: {}
   - name: tensorboard
     kwargs: {}
-  - name: trackio
-    kwargs: {}
+  # - name: trackio
+  #   kwargs: {}
   # - name: wandb
   #   kwargs: {}
