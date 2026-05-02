@@ -26,6 +26,7 @@ dependencies = [
     "pandas>=2.0.3",
     "pandas>=2.1.0 ; python_version >= '3.12'",
     "pillow>=10.0.0",
+    "pillow>=12.2.0 ; python_version >= '3.10'",
     "pyarrow>=17.0.0",
     "pyarrow>=18.0.0 ; python_version >= '3.13'",
     "pywavelets>=1.4.1",
