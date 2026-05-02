@@ -37,31 +37,32 @@ hp:
     max_lr: 1e-4
     lr_pow: 2
 
-  dataset:
-    train:
-      name: hf_temporal_columns
-      kwargs:
-        path: /path/to/labeled_video_dataset
-        split: train
-        rel_idx_anchor: null
-        rel_idx_zero: 0
-        rel_idx_range: [0, 14]
-        remap:
-          remote_frame: near_lossless
-          local_frame: near_lossless
-          seg_mask: label
-    validation:
-      name: hf_temporal_columns
-      kwargs:
-        path: /path/to/labeled_video_dataset
-        split: validation
-        rel_idx_anchor: target
-        rel_idx_zero: 14
-        rel_idx_range: [-14, 0]
-        remap:
-          remote_frame: original
-          local_frame: original
-          seg_mask: label_hq
+  dataset: {}
+  # dataset:
+  #   train:
+  #     name: hf_temporal_columns
+  #     kwargs:
+  #       path: /path/to/labeled_video_dataset
+  #       split: train
+  #       rel_idx_anchor: null
+  #       rel_idx_zero: 0
+  #       rel_idx_range: [0, 14]
+  #       remap:
+  #         remote_frame: near_lossless
+  #         local_frame: near_lossless
+  #         seg_mask: label
+  #   validation:
+  #     name: hf_temporal_columns
+  #     kwargs:
+  #       path: /path/to/labeled_video_dataset
+  #       split: validation
+  #       rel_idx_anchor: target
+  #       rel_idx_zero: 14
+  #       rel_idx_range: [-14, 0]
+  #       remap:
+  #         remote_frame: original
+  #         local_frame: original
+  #         seg_mask: label_hq
 
   model:
     name: dedelayed_v1_efficientvitl1_efficientvitb0
