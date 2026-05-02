@@ -68,7 +68,7 @@ class TemporalSample(NamedTuple):
 
 
 def sample_temporal_indices_train(config: Config) -> TemporalSample:
-    past_ticks = np.random.choice(range(config.min_delay, config.max_delay + 1))
+    past_ticks = int(np.random.choice(range(config.min_delay, config.max_delay + 1)))
     return sample_temporal_indices_eval(
         past_ticks=past_ticks,
         past_ticks_true=past_ticks,
@@ -180,7 +180,7 @@ def evaluate_dedelayed_v1_segmentation(
     def build_metric() -> Metric:
         return JaccardIndex(
             task="multiclass",
-            num_classes=model.num_classes,
+            num_classes=model.num_classes,  # type: ignore
             average="macro",
             ignore_index=255,
         ).to(device)
@@ -432,8 +432,9 @@ def run_validation_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, 
 
 def init_model(
     cfg: DictConfig, device: str, resume_ckpt: dict | None
-) -> tuple[torch.nn.Module, list[torch.nn.Module]]:
+) -> tuple[Dedelayed_v1_Fused, list[torch.nn.Module]]:
     model = build_fused_model(cfg.hp.model)
+    assert isinstance(model, Dedelayed_v1_Fused)
 
     if resume_ckpt is not None:
         model.load_state_dict(resume_ckpt["model_state_dict"])
@@ -451,13 +452,13 @@ def init_model(
             module.drop_path = cfg.hp.config.drop_path
 
     frozen_modules: list[torch.nn.Module] = [
-        model.remote_model.main_model.image_model,
-        # model.local_model.image_model,
+        model.remote_model.main_model.image_model,  # type: ignore
+        # model.local_model.image_model,  # type: ignore
         *[
             submodule
             for module in [
-                model.remote_model.main_model.image_model,
-                model.local_model.image_model,
+                model.remote_model.main_model.image_model,  # type: ignore
+                model.local_model.image_model,  # type: ignore
             ]
             for submodule in module.modules()
             if isinstance(submodule, torch.nn.modules.batchnorm._BatchNorm)
