@@ -9,8 +9,8 @@ backends:
     kwargs: {}
   - name: aim
     kwargs: {}
-  - name: mlflow
-    kwargs: {}
+  # - name: mlflow
+  #   kwargs: {}
   # - neptune:
   #   kwargs:
   #     workspace: workspace-name
