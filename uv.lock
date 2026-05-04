@@ -1681,6 +1681,8 @@ dependencies = [
     { name = "numpy", version = "1.24.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "omegaconf" },
+    { name = "onnxsim", version = "0.4.36", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "onnxsim", version = "0.6.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "opencv-python" },
     { name = "pandas", version = "2.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "pandas", version = "3.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1738,6 +1740,8 @@ requires-dist = [
     { name = "matplotlib", marker = "python_full_version >= '3.13'", specifier = ">=3.9.0" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "omegaconf", specifier = ">=2.3.0" },
+    { name = "onnxsim", specifier = ">=0.4.36" },
+    { name = "onnxsim", marker = "python_full_version >= '3.10'", specifier = ">=0.6.3" },
     { name = "opencv-python", specifier = ">=4.10.0.84" },
     { name = "pandas", specifier = ">=2.0.3" },
     { name = "pandas", marker = "python_full_version >= '3.12'", specifier = ">=2.1.0" },
@@ -1828,7 +1832,8 @@ dependencies = [
     { name = "omegaconf" },
     { name = "onnx" },
     { name = "onnxruntime" },
-    { name = "onnxsim" },
+    { name = "onnxsim", version = "0.4.36", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "onnxsim", version = "0.6.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "opencv-python" },
     { name = "pycocotools" },
     { name = "scikit-image" },
@@ -4164,9 +4169,19 @@ wheels = [
 name = "onnxsim"
 version = "0.4.36"
 source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*' and platform_machine == 'arm64' and sys_platform == 'darwin'",
+    "python_full_version == '3.9.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.9.*' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version == '3.9.*' and platform_machine != 'arm64' and sys_platform == 'darwin') or (python_full_version == '3.9.*' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version < '3.9' and platform_machine == 'arm64' and sys_platform == 'darwin'",
+    "python_full_version < '3.9' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.9' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "(python_full_version < '3.9' and platform_machine != 'arm64' and sys_platform == 'darwin') or (python_full_version < '3.9' and sys_platform != 'darwin' and sys_platform != 'linux')",
+]
 dependencies = [
-    { name = "onnx" },
-    { name = "rich" },
+    { name = "onnx", marker = "python_full_version < '3.10'" },
+    { name = "rich", marker = "python_full_version < '3.10'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ce/9e/f34238413ebeda9a3a8802feeaa5013934455466b9ab390b48ad9c7e184f/onnxsim-0.4.36.tar.gz", hash = "sha256:6e0ee9d6d4a83042bdef7319fbe58352d9fda5f253386be2b267c7c27f0638ee", size = 20993703, upload-time = "2024-03-04T08:25:00.086Z" }
 wheels = [
@@ -4182,6 +4197,52 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/20/3b/2230a57ee0425649b16bf8ba0a17400c9aa003f049052833055ff3bcbfa8/onnxsim-0.4.36-cp39-cp39-macosx_10_15_universal2.whl", hash = "sha256:6ae38cb9a23b759202d8ecc6c25392a2cecd156499b036fc48720d048833bece", size = 3471439, upload-time = "2024-03-04T08:24:48.95Z" },
     { url = "https://files.pythonhosted.org/packages/0c/c3/21c4e4a17c0dae64c0f0c02186baa198d7d5563af9a27361d2fdd75a8e04/onnxsim-0.4.36-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e937abb8e20a6609f27ae19639d21dc5e8621c4a5e44ebbafab9292451f75497", size = 2255609, upload-time = "2024-03-04T08:24:50.594Z" },
     { url = "https://files.pythonhosted.org/packages/ad/c4/16260e99ed9f82e33d4061a953d927bd174e0c67868e4e15ae5335cd1713/onnxsim-0.4.36-cp39-cp39-win_amd64.whl", hash = "sha256:1a23f32bc6ab3829ee69d9b737e4cfeb457d91720c4040788dabbc88e11dfacc", size = 1288184, upload-time = "2024-03-04T08:24:52.271Z" },
+]
+
+[[package]]
+name = "onnxsim"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.13' and sys_platform == 'darwin'",
+    "python_full_version == '3.12.*' and sys_platform == 'darwin'",
+    "python_full_version >= '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version >= '3.13' and sys_platform == 'win32'",
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+    "python_full_version >= '3.13' and sys_platform == 'emscripten'",
+    "python_full_version == '3.12.*' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.12.*' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version >= '3.13' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.12.*' and sys_platform != 'darwin' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.11.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.11.*' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.11.*' and sys_platform != 'darwin' and sys_platform != 'linux'",
+    "python_full_version == '3.10.*' and sys_platform == 'darwin'",
+    "python_full_version == '3.10.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.10.*' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version == '3.10.*' and sys_platform != 'darwin' and sys_platform != 'linux'",
+]
+dependencies = [
+    { name = "onnx", marker = "python_full_version >= '3.10'" },
+    { name = "rich", marker = "python_full_version >= '3.10'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ca/e2/18dc34b79893dfa40fab6386b9024cfafb7050d87441b7af99dec414b65c/onnxsim-0.6.3.tar.gz", hash = "sha256:5ea844096208ba0a19d59ecee9b88e37c0059222ec2d30d35f400a2cdc5e5c58", size = 2729697, upload-time = "2026-04-29T13:55:11.29Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/40/8df422f9f4c8ad692fe268eaa3434683b711a90dbaf21a630cf6a77ce604/onnxsim-0.6.3-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:dec25e910e491fb5aa67ddc47cc714d9a245ea2f1c34e5bc2df6d2f03a934c23", size = 1870658, upload-time = "2026-04-29T13:54:47.118Z" },
+    { url = "https://files.pythonhosted.org/packages/05/cb/4f121c0a76fce13adaa9dae70bce34e58e8c4d9ca942c94028b7a7cd7951/onnxsim-0.6.3-cp310-cp310-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bf5e7bb9ee1fc4c52860cc6a09da89da24961d08a9c2df2f754cede139b1f8fc", size = 2632155, upload-time = "2026-04-29T13:54:49.145Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/51/c9fdf1de85bff91d77b61ebde637934c2253432f3d4e085e3573ceab2a5b/onnxsim-0.6.3-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1020ca5315fbc46ef2e421c711d7da9a4888a8eb9ec2b01354f0c51884fe1289", size = 2942847, upload-time = "2026-04-29T13:54:51.214Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/c5/04a4267f9cdf3545d8e07c01bdee5eb8b7e321d2bd8f3a399211652d9fc8/onnxsim-0.6.3-cp310-cp310-win_amd64.whl", hash = "sha256:60299269e426d5142dac51fec38463f4ec7b9db3a16ad0522e230b3f1ca14a49", size = 1643717, upload-time = "2026-04-29T13:54:52.816Z" },
+    { url = "https://files.pythonhosted.org/packages/46/2c/6893f3bc2ee925db9b692c3c21776ddf85c5e76289cc8c3856625624e5e4/onnxsim-0.6.3-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:4db8f10c4cb85d69618cf68d354670b307016046bc685c787124c2690e25e521", size = 1870393, upload-time = "2026-04-29T13:54:54.474Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/8f/b6a8b80b24b40195854c3d505072a1a2b9702673995c594857200a2cda9f/onnxsim-0.6.3-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:95071fa6031dba9d67334d3757c0cfeb512238dd2f188fc05a7b41c2104cfb84", size = 2631887, upload-time = "2026-04-29T13:54:56.685Z" },
+    { url = "https://files.pythonhosted.org/packages/01/11/0bee3644a9d0130ceecf2b1d227766e2216da12bcc070645c5e62740404a/onnxsim-0.6.3-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8a990beccd50af79d075aaf46ddb38780dfbfe1b809d3bf0c27cc2378eeeb397", size = 2942256, upload-time = "2026-04-29T13:54:58.785Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/a5/68afb3b3b2f2afc1d9795a08951a81592ec5fc218ce7854da1739c954f6b/onnxsim-0.6.3-cp311-cp311-win_amd64.whl", hash = "sha256:d626a2977d2ff6d394eb79e7626d35a71166ebd66bf30d1f7f8fce92c5504b8a", size = 1643476, upload-time = "2026-04-29T13:55:01.038Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/b6/8aaa5a08fc552c85c7def463c34f77c955a7cb77d1fc09fd0cb28ef498f7/onnxsim-0.6.3-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:272982fc45af9527528208bff5fb7ea4f9eefd9543e63e9b4ed12c2886639c15", size = 1868204, upload-time = "2026-04-29T13:55:02.973Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/9a/27e3441185153715b05e3ba9ba758f95d583e96b3e5b912448929a4b8d4e/onnxsim-0.6.3-cp312-abi3-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2308fc339a1767611dbd7336c3b84a4d91ff7b5172cadbd082ac3170717cac0f", size = 2628874, upload-time = "2026-04-29T13:55:05.142Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/68/9bbb830e240557f6f5bbd2da2e9df3abbf3bf850e088814bd90194ee8efe/onnxsim-0.6.3-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5b5f78597af8e7f845ab326739809dab1a1e9196016b861f0bb12bd4521a85cf", size = 2937736, upload-time = "2026-04-29T13:55:07.098Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/12/5cb26d101e20897bb270f3ea0e4eba1d6f8b78787f199bc6caf3d13928c8/onnxsim-0.6.3-cp312-abi3-win_amd64.whl", hash = "sha256:8e5334d2946dca52564cf05df6628830c7a1b1a24ef91adca61d06b123b61f58", size = 1641767, upload-time = "2026-04-29T13:55:08.965Z" },
 ]
 
 [[package]]
