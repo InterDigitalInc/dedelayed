@@ -244,7 +244,22 @@ def evaluate_dedelayed_v1_segmentation(
     return {key: metric.compute().item() for key, metric in metrics.items()}
 
 
-def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None:
+def run_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float]:
+    metrics = {}
+
+    train_metrics = run_train_epoch(runtime, state)
+    metrics.update(train_metrics)
+
+    validation_metrics = run_validation_epoch(runtime, state)
+    metrics.update(validation_metrics)
+
+    state.epoch += 1
+    save_checkpoint(runtime=runtime, state=state)
+
+    return metrics
+
+
+def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float]:
     config = runtime.cfg.hp.config
     model = runtime.model
     assert isinstance(model, Dedelayed_v1_Fused)
@@ -326,6 +341,15 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
             lr=f"{metrics['train/step/lr']:.2g}",
         )
 
+    return metrics
+
+
+def run_validation_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float]:
+    config = runtime.cfg.hp.config
+    model = runtime.model
+    assert isinstance(model, Dedelayed_v1_Fused)
+    metrics = {}
+
     eval_past_ticks = range(config.min_delay, config.max_delay + 1)
     val_metric_keys = [
         "val/epoch/miou",
@@ -371,7 +395,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
 
     runtime.tracker.log_metrics(
         {
-            "epoch": state.epoch + 1,
+            "epoch": state.epoch,
             **{k: v for k, v in metrics.items() if k.startswith("val/epoch/")},
         },
         step=state.global_step,
@@ -387,13 +411,7 @@ def run_epoch(runtime: TrainRuntime, state: TrainState, epoch_bar: tqdm) -> None
         for past_ticks in eval_past_ticks
     ]
 
-    epoch_bar.set_postfix(
-        loss=f"{metrics['train/step/loss']:.3g}",
-        miou=f"{metrics['val/epoch/miou']:.3g}",
-        lr=f"{metrics['train/step/lr']:.2g}",
-    )
-    state.epoch += 1
-    save_checkpoint(runtime=runtime, state=state)
+    return metrics
 
 
 def init_model(
@@ -582,7 +600,17 @@ def main(cfg: DictConfig) -> None:
     )
     for epoch in epoch_bar:
         assert state.epoch == epoch
-        run_epoch(runtime=runtime, state=state, epoch_bar=epoch_bar)
+        metrics = run_epoch(runtime=runtime, state=state)
+        postfix: dict = {
+            label: f"{metrics[metric_key]:{fmt}}"
+            for label, metric_key, fmt in [
+                ("loss", "train/step/loss", ".3g"),
+                ("miou", "val/epoch/miou", ".3g"),
+                ("lr", "train/step/lr", ".2g"),
+            ]
+            if metric_key in metrics
+        }
+        epoch_bar.set_postfix(**postfix)
 
     cfg.run.utc_end_time = datetime.now(timezone.utc).isoformat()
 
