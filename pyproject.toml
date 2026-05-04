@@ -59,6 +59,9 @@ secondary = [
     "onnx>=1.17.0",
     "torchmetrics>=1.5.2",
 ]
+trackers = [
+    "aim>=3.29.1 ; python_version < '3.13'",
+]
 
 [tool.uv.sources]
 efficientvit = { git = "https://github.com/mit-han-lab/efficientvit.git" }
