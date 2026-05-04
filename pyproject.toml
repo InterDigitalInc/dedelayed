@@ -61,6 +61,7 @@ secondary = [
 ]
 trackers = [
     "aim>=3.29.1 ; python_version < '3.13'",
+    "tensorboard>=2.14.0",
 ]
 
 [tool.uv.sources]
