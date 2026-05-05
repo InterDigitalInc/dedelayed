@@ -15,6 +15,7 @@ hp:
   config:
     epochs: 10
     batch_size: 1
+    validate_every_n_epochs: 1
     aspect: 1.7778
     remote_size: 720
     local_size: 480

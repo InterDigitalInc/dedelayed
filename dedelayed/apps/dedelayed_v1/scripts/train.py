@@ -245,16 +245,21 @@ def evaluate_dedelayed_v1_segmentation(
 
 
 def run_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float]:
+    config = runtime.cfg.hp.config
     metrics = {}
 
     train_metrics = run_train_epoch(runtime, state)
     metrics.update(train_metrics)
-
-    validation_metrics = run_validation_epoch(runtime, state)
-    metrics.update(validation_metrics)
-
     state.epoch += 1
     save_checkpoint(runtime=runtime, state=state)
+
+    if (
+        state.epoch == config.epochs
+        or (state.epoch - 1) % config.validate_every_n_epochs == 0
+    ):
+        validation_metrics = run_validation_epoch(runtime, state)
+        metrics.update(validation_metrics)
+        save_checkpoint(runtime=runtime, state=state)
 
     return metrics
 
