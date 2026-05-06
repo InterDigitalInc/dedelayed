@@ -55,6 +55,7 @@ dev = [
 ]
 secondary = [
     "av>=12.3.0",
+    "av>=14.1.0 ; python_version >= '3.9'",
     "fastprogress>=1.0.0",
     "hsluv>=5.0.0",
     "matplotlib>=3.7.5",
