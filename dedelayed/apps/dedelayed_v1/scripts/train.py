@@ -451,7 +451,7 @@ def init_model(
             module.drop_path = cfg.hp.config.drop_path
 
     frozen_modules: list[torch.nn.Module] = [
-        model.remote_model.main_model.image_model,  # type: ignore
+        # model.remote_model.main_model.image_model,  # type: ignore
         # model.local_model.image_model,  # type: ignore
         *[
             submodule
