@@ -98,6 +98,15 @@ class Dedelayed_v1_EfficientViTL1_MSTransformer2D_Remote(Dedelayed_v1_Remote):
 
         return outputs
 
+    def image_only(self, x_remote_latest: Tensor) -> dict[str, Tensor]:
+        x_remote_latest = renormalize(
+            x_remote_latest,
+            src=self.normalization_src,
+            dest=self.normalization_dest,
+            channel_dim=1,
+        )
+        return {"seg_logits": self.main_model.image_model(x_remote_latest)}
+
     def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
         z = self.encode_frames(x_remote_latest[:, :, None])
         return z.expand(-1, -1, self.context_len, -1, -1).clone()

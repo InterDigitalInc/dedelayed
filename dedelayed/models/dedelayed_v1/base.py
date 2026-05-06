@@ -45,6 +45,10 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def image_only(self, x_remote_latest: Tensor) -> dict[str, Tensor]:
+        raise NotImplementedError
+
+    @abstractmethod
     def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
         raise NotImplementedError
 
