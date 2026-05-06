@@ -315,10 +315,20 @@ def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float
         out_local_only = model.local_model(x_local, downlink_features=downlink_features)
         local_only_loss = compute_loss(out_local_only["seg_logits"], target)
 
+        remote_image_only_loss = torch.zeros_like(remote_only_loss)
+        remote_image_only_mask = batch.past_ticks == 0
+        out_remote_image_only = model.remote_model.image_only(batch.x_remote[:, :, -1])
+        if bool(remote_image_only_mask.any().item()):
+            remote_image_only_loss = compute_loss(
+                out_remote_image_only["seg_logits"][remote_image_only_mask],
+                target[remote_image_only_mask],
+            )
+
         loss = (
             config.loss_weight.fused * fused_loss
             + config.loss_weight.remote_only * remote_only_loss
             + config.loss_weight.local_only * local_only_loss
+            + config.loss_weight.remote_image_only * remote_image_only_loss
         )
 
         runtime.optimizer.zero_grad()
@@ -460,6 +470,8 @@ def init_model(
         print(f"{icon} {str(list(param.shape)):<24} {param_name}")
 
     compile_kwargs: dict = {"mode": "max-autotune"}
+    r = model.remote_model
+    r.image_only = torch.compile(r.image_only, **compile_kwargs)
     model.remote_model.compile(**compile_kwargs)
     model.local_model.compile(**compile_kwargs)
     model.compile(**compile_kwargs)
