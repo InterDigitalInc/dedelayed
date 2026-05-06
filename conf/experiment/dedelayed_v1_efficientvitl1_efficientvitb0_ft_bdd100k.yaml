@@ -28,7 +28,7 @@ hp:
     loss_weight:
       fused: 1.0
       local_only: 1.0
-      remote_only: 0.25
+      remote_only: 1.0
       remote_image_only: 1.0
     random_speedup_shift:
       speedups: [1]
