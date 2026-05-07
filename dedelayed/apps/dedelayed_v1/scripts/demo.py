@@ -26,8 +26,7 @@ from torchvision.transforms.v2.functional import pil_to_tensor, to_pil_image
 import dedelayed.datasets.cityscapes
 from dedelayed.datasets.cityscapes import decode_cityscapes_tensor
 from dedelayed.models.dedelayed_v1.base import Dedelayed_v1_Fused, Dedelayed_v1_Remote
-from dedelayed.models.dedelayed_v1.factory import build_fused_model
-from dedelayed.zoo import get_model
+from dedelayed.zoo import get_model, get_model_from_checkpoint
 
 device = "cuda"
 
@@ -204,19 +203,18 @@ def open_video_writer(
 
 
 def init_model(args):
-    if args.model_checkpoint is not None:
-        ckpt = torch.load(args.model_checkpoint, map_location="cpu")
-        model_cfg = ckpt["meta"]["hp"]["model"]
-        model = build_fused_model(model_cfg)
-        model.load_state_dict(ckpt["model_state_dict"], strict=True)
-        model_name = model_cfg["name"]
+    if args.checkpoint is not None:
+        model, metadata = get_model_from_checkpoint(args.checkpoint, strict=True)
     else:
-        model = get_model(args.model_name, pretrained=True)
-        model_name = args.model_name
+        model, metadata = get_model(args.zoo_model, pretrained=True)
+
+    model_name = metadata["hp"]["model"]["name"]
 
     model.localonly_model = model.local_model
-    if args.localonly_model_checkpoint is not None:
-        localonly_ckpt = torch.load(args.localonly_model_checkpoint, map_location="cpu")
+    if args.localonly_checkpoint is not None:
+        localonly_ckpt = torch.load(
+            args.localonly_checkpoint, map_location="cpu", weights_only=True
+        )
         model.localonly_model = copy.deepcopy(model.local_model)
         model.localonly_model.image_model.load_state_dict(
             localonly_ckpt["model_state_dict"], strict=True
@@ -357,11 +355,11 @@ def parse_args(argv=None):
         {"name": ["input_filename"]},
         {"name": ["--output_filename"]},
         {
-            "name": ["--model_name"],
+            "name": ["--zoo_model"],
             "default": "dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k",
         },
-        {"name": ["--model_checkpoint"]},
-        {"name": ["--localonly_model_checkpoint"]},
+        {"name": ["--checkpoint"]},
+        {"name": ["--localonly_checkpoint"]},
         {"name": ["--speedup"], "type": int, "default": 1},
         {"name": ["--past_ticks"], "type": int, "default": 5},
         {"name": ["--past_ticks_offset"], "type": int, "default": 0},
@@ -397,12 +395,10 @@ def parse_args(argv=None):
     args.input_filename = Path(args.input_filename).expanduser()
     if args.output_filename is not None:
         args.output_filename = Path(args.output_filename).expanduser()
-    if args.model_checkpoint is not None:
-        args.model_checkpoint = Path(args.model_checkpoint).expanduser()
-    if args.localonly_model_checkpoint is not None:
-        args.localonly_model_checkpoint = Path(
-            args.localonly_model_checkpoint
-        ).expanduser()
+    if args.checkpoint is not None:
+        args.checkpoint = Path(args.checkpoint).expanduser()
+    if args.localonly_checkpoint is not None:
+        args.localonly_checkpoint = Path(args.localonly_checkpoint).expanduser()
     args.past_ticks_true = args.past_ticks + args.past_ticks_offset
     args.x_remote_size = tuple(args.x_remote_size)
     args.x_local_size = tuple(args.x_local_size)

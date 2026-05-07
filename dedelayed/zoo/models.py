@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, NamedTuple
 from urllib.request import urlretrieve
 
 import torch
@@ -17,6 +18,11 @@ ROOT_URL = "https://github.com/InterDigitalInc/dedelayed/releases/download/weigh
 CHECKPOINTS = {
     "dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k": "dedelayed_v1_efficientvitl1_mstransformer2d.r720_l480_ft_bdd100k_e10.rev1.pth",
 }
+
+
+class LoadedModel(NamedTuple):
+    model: torch.nn.Module
+    metadata: dict[str, Any]
 
 
 def get_root() -> Path:
@@ -35,8 +41,8 @@ def get_model(
     pretrained: bool = True,
     root: str | Path | None = None,
     map_location: str | torch.device = "cpu",
-) -> torch.nn.Module:
-    root = Path(root) if root is not None else get_root()
+) -> LoadedModel:
+    root = Path(root).expanduser() if root is not None else get_root()
 
     checkpoint_name = CHECKPOINTS[name]
     checkpoint_url = f"{ROOT_URL}/{checkpoint_name}"
@@ -56,11 +62,11 @@ def get_model(
 
     if pretrained:
         _download_if_needed(checkpoint_path, checkpoint_url)
-        ckpt = torch.load(checkpoint_path, map_location=map_location)
+        ckpt = torch.load(checkpoint_path, map_location=map_location, weights_only=True)
         assert ckpt["meta"]["hp"]["model"] == model_cfg
         model.load_state_dict(ckpt["model_state_dict"])
 
-    return model
+    return LoadedModel(model=model, metadata=metadata)
 
 
 def get_model_from_checkpoint(
@@ -68,8 +74,10 @@ def get_model_from_checkpoint(
     *,
     map_location: str | torch.device = "cpu",
     strict: bool = True,
-) -> torch.nn.Module:
-    ckpt = torch.load(Path(path).expanduser(), map_location=map_location)
-    model = build_fused_model(ckpt["meta"]["hp"]["model"])
+) -> LoadedModel:
+    checkpoint_path = Path(path).expanduser()
+    ckpt = torch.load(checkpoint_path, map_location=map_location, weights_only=True)
+    metadata = ckpt["meta"]
+    model = build_fused_model(metadata["hp"]["model"])
     model.load_state_dict(ckpt["model_state_dict"], strict=strict)
-    return model
+    return LoadedModel(model=model, metadata=metadata)
