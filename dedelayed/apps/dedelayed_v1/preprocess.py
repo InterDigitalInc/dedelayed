@@ -100,6 +100,15 @@ class ComposeTemporal:
         return idx
 
 
+class SpeedupShift:
+    def __init__(self, speedup: int, shift: int = 0) -> None:
+        self._speedup = int(speedup)
+        self._shift = int(shift)
+
+    def __call__(self, idx: ClipIdx) -> ClipIdx:
+        return idx.speedup(self._speedup).shift(self._shift)
+
+
 class RandomSpeedupShift:
     def __init__(self, speedups: tuple[int, ...], idx_range: tuple[int, int]) -> None:
         self._speedups = tuple(int(s) for s in speedups)

@@ -13,6 +13,7 @@ import PIL.Image
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from dedelayed.apps.dedelayed_v1.preprocess import ComposeTemporal, SpeedupShift
 from dedelayed.apps.dedelayed_v1.scripts.train import (
     DEFAULT_EVAL_COMPRESSION,
     evaluate_dedelayed_v1_segmentation,
@@ -61,6 +62,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     ]
     arguments = [
         {"name": ["--dataset"], "required": True},
+        {"name": ["--speedup"], "type": int, "default": 1},
         {"name": ["--past_ticks"], "type": int, "nargs": "+", "required": True},
         {"name": ["--future_ticks_true"], "type": int, "default": 0},
         {"name": ["--device"], "default": "cuda"},
@@ -129,6 +131,7 @@ def main() -> None:
             x_remote_size=x_remote_size,
             x_local_size=x_local_size,
             logits_interp=logits_interp,
+            temporal_transform=ComposeTemporal([SpeedupShift(args.speedup)]),
             num_workers=args.num_workers
             if args.num_workers is not None
             else len(os.sched_getaffinity(0)),

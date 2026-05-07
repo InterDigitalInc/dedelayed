@@ -167,12 +167,15 @@ def evaluate_dedelayed_v1_segmentation(
     x_remote_size: tuple[int, int],
     x_local_size: tuple[int, int],
     logits_interp: PIL.Image.Resampling = PIL.Image.Resampling.BICUBIC,
+    temporal_transform: Callable[[ClipIdx], ClipIdx] | None = None,
     num_workers: int = 0,
 ) -> dict[str, float]:
     model.eval()
     past_ticks_true = past_ticks + past_ticks_offset
     assert past_ticks_true >= 0
     assert future_ticks_true >= 0
+    if temporal_transform is None:
+        temporal_transform = ComposeTemporal([])
 
     def build_metric() -> Metric:
         return JaccardIndex(
@@ -205,7 +208,7 @@ def evaluate_dedelayed_v1_segmentation(
                 past_ticks_true,
                 future_ticks_true,
             ),
-            temporal_transform=ComposeTemporal([]),
+            temporal_transform=temporal_transform,
             preprocess_clip=functools.partial(
                 preprocess_clip,
                 uplink_compression=uplink_compression,
