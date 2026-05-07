@@ -220,7 +220,7 @@ def init_model(args):
             localonly_ckpt["model_state_dict"], strict=True
         )
 
-    model.to(device)
+    model.to(device).eval()
     assert isinstance(model, Dedelayed_v1_Fused)
 
     if args.compile_enabled:
@@ -351,15 +351,29 @@ def iter_streaming_outputs(
 
 
 def parse_args(argv=None):
+    def expand_path(path: str) -> Path:
+        return Path(path).expanduser()
+
+    def add_arguments(parser, arguments: list[dict]) -> None:
+        for argument in arguments:
+            names = argument["name"]
+            aliases = [
+                name.replace("_", "-")
+                for name in names
+                if name.startswith("--") and "_" in name
+            ]
+            kwargs = {k: v for k, v in argument.items() if k != "name"}
+            parser.add_argument(*names, *aliases, **kwargs)
+
     arguments = [
-        {"name": ["input_filename"]},
-        {"name": ["--output_filename"]},
+        {"name": ["input_filename"], "type": expand_path},
+        {"name": ["--output_filename"], "type": expand_path},
         {
             "name": ["--zoo_model"],
             "default": "dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k",
         },
-        {"name": ["--checkpoint"]},
-        {"name": ["--localonly_checkpoint"]},
+        {"name": ["--checkpoint"], "type": expand_path},
+        {"name": ["--localonly_checkpoint"], "type": expand_path},
         {"name": ["--speedup"], "type": int, "default": 1},
         {"name": ["--past_ticks"], "type": int, "default": 5},
         {"name": ["--past_ticks_offset"], "type": int, "default": 0},
@@ -380,25 +394,8 @@ def parse_args(argv=None):
     ]
 
     parser = argparse.ArgumentParser()
-    for argument in arguments:
-        names = argument["name"]
-        hyphen_names = [
-            name.replace("_", "-") for name in names if name.startswith("--")
-        ]
-        parser.add_argument(
-            *names,
-            *[name for name in hyphen_names if name not in names],
-            **{k: v for k, v in argument.items() if k != "name"},
-        )
-
+    add_arguments(parser, arguments)
     args = parser.parse_args(argv)
-    args.input_filename = Path(args.input_filename).expanduser()
-    if args.output_filename is not None:
-        args.output_filename = Path(args.output_filename).expanduser()
-    if args.checkpoint is not None:
-        args.checkpoint = Path(args.checkpoint).expanduser()
-    if args.localonly_checkpoint is not None:
-        args.localonly_checkpoint = Path(args.localonly_checkpoint).expanduser()
     args.past_ticks_true = args.past_ticks + args.past_ticks_offset
     args.x_remote_size = tuple(args.x_remote_size)
     args.x_local_size = tuple(args.x_local_size)
@@ -428,9 +425,8 @@ def main():
         [220, 20, 60], dtype=torch.int16
     )  # Boost person visibility.
 
-    output_filename = args.output_filename
-    if output_filename is None:
-        output_filename = (
+    if args.output_filename is None:
+        args.output_filename = Path(
             f"samples/output/"
             f"{args.input_filename.stem}.s{args.speedup}x"
             f"_past{round(args.past_ticks * 1000 / 30)}ms"
@@ -438,8 +434,18 @@ def main():
             f".{model_name}.r{args.x_local_size[0]}_720.mkv"
         )
 
+    print(
+        f"checkpoint: {args.checkpoint}"
+        if args.checkpoint is not None
+        else f"zoo_model: {args.zoo_model}"
+    )
+    print(f"input: {args.input_filename}")
+    print(f"output: {args.output_filename}")
+    print(f"x_remote_size: {args.x_remote_size}")
+    print(f"x_local_size: {args.x_local_size}")
+
     container, stream = open_video_writer(
-        output_filename=output_filename,
+        output_filename=args.output_filename,
         output_size=(target_size[0] + 2 * 200, target_size[1] * 4),
         fps_fraction=args.fps_fraction,
     )
