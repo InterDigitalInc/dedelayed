@@ -12,6 +12,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from fractions import Fraction
 from itertools import chain, islice
 from pathlib import Path
+from typing import cast
 
 import av
 import av.container
@@ -20,12 +21,14 @@ import PIL.Image
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.v2.functional as TF
+from omegaconf import DictConfig, OmegaConf
 from PIL import ImageDraw, ImageFont
 from torchvision.transforms.v2.functional import pil_to_tensor, to_pil_image
 
 import dedelayed.datasets.cityscapes
 from dedelayed.datasets.cityscapes import decode_cityscapes_tensor
 from dedelayed.models.dedelayed_v1.base import Dedelayed_v1_Fused, Dedelayed_v1_Remote
+from dedelayed.utils.preprocessing import compute_size
 from dedelayed.zoo import get_model, get_model_from_checkpoint
 
 device = "cuda"
@@ -170,7 +173,7 @@ def draw_comparison_frame(
     return img
 
 
-def read_video_frames(filename: str) -> Iterator[torch.Tensor]:
+def read_video_frames(filename: str | Path) -> Iterator[torch.Tensor]:
     container = av.open(filename)
     for frame in container.decode(video=0):
         pil_img = frame.to_image().convert("RGB")
@@ -181,7 +184,7 @@ def read_video_frames(filename: str) -> Iterator[torch.Tensor]:
 
 
 def open_video_writer(
-    output_filename: str, *, output_size: tuple[int, int], fps_fraction: Fraction
+    output_filename: str | Path, *, output_size: tuple[int, int], fps_fraction: Fraction
 ) -> tuple[av.container.OutputContainer, av.video.stream.VideoStream]:
     Path(output_filename).parent.mkdir(parents=True, exist_ok=True)
     container = av.open(output_filename, mode="w")
@@ -208,8 +211,6 @@ def init_model(args):
     else:
         model, metadata = get_model(args.zoo_model, pretrained=True)
 
-    model_name = metadata["hp"]["model"]["name"]
-
     model.localonly_model = model.local_model
     if args.localonly_checkpoint is not None:
         localonly_ckpt = torch.load(
@@ -233,7 +234,7 @@ def init_model(args):
         model.local_model.compile(**compile_kwargs)
         model.localonly_model.compile(**compile_kwargs)
 
-    return model, model_name
+    return model, metadata
 
 
 class RemoteStream:
@@ -365,20 +366,19 @@ def parse_args(argv=None):
             kwargs = {k: v for k, v in argument.items() if k != "name"}
             parser.add_argument(*names, *aliases, **kwargs)
 
+    model_arguments = [
+        {"name": ["--zoo_model"], "help": "Model name."},
+        {"name": ["--checkpoint"], "type": expand_path, "help": "Checkpoint path."},
+    ]
     arguments = [
         {"name": ["input_filename"], "type": expand_path},
         {"name": ["--output_filename"], "type": expand_path},
-        {
-            "name": ["--zoo_model"],
-            "default": "dedelayed_v1_efficientvitl1_mstransformer2d_bdd100k",
-        },
-        {"name": ["--checkpoint"], "type": expand_path},
         {"name": ["--localonly_checkpoint"], "type": expand_path},
         {"name": ["--speedup"], "type": int, "default": 1},
         {"name": ["--past_ticks"], "type": int, "default": 5},
         {"name": ["--past_ticks_offset"], "type": int, "default": 0},
-        {"name": ["--x_remote_size"], "type": int, "nargs": 2, "default": (704, 1248)},
-        {"name": ["--x_local_size"], "type": int, "nargs": 2, "default": (480, 832)},
+        {"name": ["--x_remote_size"], "type": int, "nargs": 2},
+        {"name": ["--x_local_size"], "type": int, "nargs": 2},
         {
             "name": ["--fps"],
             "dest": "fps_fraction",
@@ -394,11 +394,14 @@ def parse_args(argv=None):
     ]
 
     parser = argparse.ArgumentParser()
+    add_arguments(parser.add_mutually_exclusive_group(required=True), model_arguments)
     add_arguments(parser, arguments)
     args = parser.parse_args(argv)
     args.past_ticks_true = args.past_ticks + args.past_ticks_offset
-    args.x_remote_size = tuple(args.x_remote_size)
-    args.x_local_size = tuple(args.x_local_size)
+    if args.x_remote_size is not None:
+        args.x_remote_size = tuple(args.x_remote_size)
+    if args.x_local_size is not None:
+        args.x_local_size = tuple(args.x_local_size)
     return args
 
 
@@ -410,7 +413,14 @@ def main():
         torch.set_float32_matmul_precision("high")
 
     args = parse_args()
-    model, model_name = init_model(args)
+    model, metadata = init_model(args)
+    cfg = cast(DictConfig, OmegaConf.create(metadata))
+    config = cfg.hp.config
+    model_name = cfg.hp.model.name
+    if args.x_remote_size is None:
+        args.x_remote_size = compute_size(config.remote_size, config.aspect, config.ips)
+    if args.x_local_size is None:
+        args.x_local_size = compute_size(config.local_size, config.aspect, config.ips)
 
     frames_rgb = read_video_frames(args.input_filename)
     frame_rgb_first = next(frames_rgb)
