@@ -354,6 +354,7 @@ def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float
         train_bar.set_postfix(
             loss=f"{metrics['train/step/loss']:.3g}",
             lr=f"{metrics['train/step/lr']:.2g}",
+            refresh=False,
         )
 
     return metrics
