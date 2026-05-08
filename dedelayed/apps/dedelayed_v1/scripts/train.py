@@ -5,24 +5,19 @@
 from __future__ import annotations
 
 import functools
-import getpass
 import os
-import socket
-import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, NamedTuple, cast
-from uuid import uuid4
+from typing import Callable, NamedTuple
 
 import einops
 import hydra
 import numpy as np
 import PIL.Image
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from timm.optim.adan import Adan
 from torch import Tensor
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset
 from torchmetrics import Metric
 from torchmetrics.classification import JaccardIndex
 from torchvision.transforms.v2 import Resize
@@ -31,8 +26,13 @@ from tqdm.auto import tqdm
 from dedelayed.apps.dedelayed_v1.experiment import (
     TrainRuntime,
     TrainState,
+    build_experiment_datasets,
+    build_tracker_hparams,
+    load_resume_checkpoint,
     restore_training_state,
     save_checkpoint,
+    update_run_end_metadata,
+    update_run_start_metadata,
 )
 from dedelayed.apps.dedelayed_v1.preprocess import (
     Clip,
@@ -44,10 +44,8 @@ from dedelayed.apps.dedelayed_v1.preprocess import (
     preprocess_clip,
     resolve_clip_idx,
 )
-from dedelayed.datasets.factory import build_dataset
 from dedelayed.models.dedelayed_v1.base import Dedelayed_v1_Fused
 from dedelayed.models.dedelayed_v1.factory import build_fused_model
-from dedelayed.utils.git import commit_version
 from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import compute_size
 from dedelayed.utils.trackers import build_tracker
@@ -488,62 +486,13 @@ def main(cfg: DictConfig) -> None:
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.set_float32_matmul_precision("high")
 
-    cfg_update = {
-        "run": {
-            "run_id": f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}",
-            "argv": sys.argv,
-            "git": {"version": commit_version()},
-            "system": {
-                "hostname": socket.gethostname(),
-                "username": getpass.getuser(),
-                "cwd": os.getcwd(),
-                "gpu": torch.cuda.get_device_name(0)
-                if torch.cuda.is_available()
-                else "",
-            },
-            "slurm": {
-                "job_id": (
-                    f"{os.environ.get('SLURM_ARRAY_JOB_ID') or os.environ.get('SLURM_JOB_ID', '')}_"
-                    f"{os.environ.get('SLURM_ARRAY_TASK_ID', '')}"
-                ).rstrip("_"),
-                "job_name": os.environ.get("SLURM_JOB_NAME", ""),
-            },
-            "utc_start_time": datetime.now(timezone.utc).isoformat(),
-            "utc_end_time": None,
-        },
-    }
-    cfg = cast(DictConfig, OmegaConf.merge(cfg, cfg_update))
+    update_run_start_metadata(cfg)
 
-    print(f"Checkpoint name: {cfg.checkpoint.name}")
-    ckpt_path = Path(cfg.checkpoint.dir) / cfg.checkpoint.name
-    resume_ckpt = None
-    if ckpt_path.exists():
-        resume_ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-        cfg = cast(DictConfig, OmegaConf.create(resume_ckpt["meta"]))
-        print(f"Resuming from checkpoint: {ckpt_path}")
-
-    dataset = {key: build_dataset(ds_cfg) for key, ds_cfg in cfg.hp.dataset.items()}
-
+    cfg, resume_ckpt = load_resume_checkpoint(cfg)
+    dataset = build_experiment_datasets(cfg)
     config = cfg.hp.config
 
-    if cfg.debug:
-        config.epochs = 3
-        n_debug = 3 * config.batch_size
-        dataset["train"] = Subset(dataset["train"], range(n_debug))
-        dataset["validation"] = Subset(dataset["validation"], range(n_debug))
-
-    meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
-    tracker_hparams = {
-        "run": {
-            "run_id": meta["run"]["run_id"],
-            "description": meta["run"]["description"],
-            "argv": meta["run"]["argv"],
-            "git": meta["run"]["git"],
-            "slurm": meta["run"]["slurm"],
-        },
-        "checkpoint": meta["checkpoint"],
-        "hp": meta["hp"],
-    }
+    tracker_hparams = build_tracker_hparams(cfg)
     tracker = build_tracker(cfg.tracker, run_id=cfg.run.run_id, hparams=tracker_hparams)
 
     source_size = compute_size(config.remote_size, config.aspect, 1)
@@ -628,7 +577,7 @@ def main(cfg: DictConfig) -> None:
         }
         epoch_bar.set_postfix(**postfix)
 
-    cfg.run.utc_end_time = datetime.now(timezone.utc).isoformat()
+    update_run_end_metadata(cfg)
 
     tracker.close()
 
