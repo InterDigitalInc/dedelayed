@@ -58,6 +58,7 @@ Config = DictConfig
 DEFAULT_EVAL_COMPRESSION = {"format": "WEBP", "quality": 85, "lossless": False}
 DEFAULT_EVAL_PAST_TICKS = 5
 X_REMOTE_LEN = 4
+X_LOCAL_LEN = 1
 
 
 class TemporalSample(NamedTuple):
@@ -83,7 +84,7 @@ def sample_temporal_indices_eval(
     return TemporalSample(
         idx=ClipIdx(
             x_remote=[-past_ticks_true - k for k in reversed(range(X_REMOTE_LEN))],
-            x_local=[0],
+            x_local=[-k for k in reversed(range(X_LOCAL_LEN))],
             target=[future_ticks_true],
         ),
         past_ticks=past_ticks,
