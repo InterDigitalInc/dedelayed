@@ -53,6 +53,9 @@ from dedelayed.utils.utils import get_attr_by_key
 
 Config = DictConfig
 
+COMPILE_KWARGS: dict = {"mode": "max-autotune"}
+CUDA_GRAPH_MARK_STEP = True
+
 DEFAULT_EVAL_COMPRESSION = {"format": "WEBP", "quality": 85, "lossless": False}
 DEFAULT_EVAL_PAST_TICKS = 5
 X_REMOTE_LEN = 4
@@ -218,6 +221,8 @@ def evaluate_dedelayed_v1_segmentation(
         ),
     )
     for batch in tqdm(loader, desc="eval", leave=False):
+        if CUDA_GRAPH_MARK_STEP:
+            torch.compiler.cudagraph_mark_step_begin()
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(device)
         x_local = batch.x_local[:, :, -1]
@@ -291,9 +296,10 @@ def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float
         return loss_fn(resize_logits(seg_logits), target)
 
     for i_batch, batch in enumerate(train_bar):
+        if CUDA_GRAPH_MARK_STEP:
+            torch.compiler.cudagraph_mark_step_begin()
         assert isinstance(batch, CollatedBatch)
         batch = batch.to(runtime.device)
-        torch.compiler.cudagraph_mark_step_begin()
         x_local = batch.x_local[:, :, -1]
         x_local_size = x_local.shape[-2:]
         target = batch.target[:, 0]
@@ -466,7 +472,7 @@ def init_model(
         icon = "🔥 " if param.requires_grad else "❄️ "
         print(f"{icon} {str(list(param.shape)):<24} {param_name}")
 
-    compile_kwargs: dict = {"mode": "max-autotune"}
+    compile_kwargs = COMPILE_KWARGS
     r = model.remote_model
     r.image_only = torch.compile(r.image_only, **compile_kwargs)
     model.remote_model.compile(**compile_kwargs)
