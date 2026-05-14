@@ -65,6 +65,12 @@ class Dedelayed_v1_Local(nn.Module, ABC):
     ) -> dict[str, Tensor]:
         raise NotImplementedError
 
+    @abstractmethod
+    def downlink_features_shape(
+        self, x_local_size: tuple[int, int]
+    ) -> tuple[int, int, int]:
+        raise NotImplementedError
+
 
 class Dedelayed_v1_Fused(nn.Module, ABC):
     remote_model: Dedelayed_v1_Remote
