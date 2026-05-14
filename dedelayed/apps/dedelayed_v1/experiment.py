@@ -99,6 +99,8 @@ def load_resume_checkpoint(cfg: DictConfig) -> tuple[DictConfig, dict | None]:
 
 def save_checkpoint(*, runtime: TrainRuntime, state: TrainState) -> None:
     cfg = runtime.cfg
+    cfg.metrics.run.epoch = state.epoch
+    cfg.metrics.run.global_step = state.global_step
     meta = cast(dict, OmegaConf.to_container(cfg, resolve=True))
     save_dir = Path(cfg.checkpoint.dir)
     save_dir.mkdir(parents=True, exist_ok=True)

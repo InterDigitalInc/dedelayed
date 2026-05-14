@@ -38,4 +38,6 @@ hp:
   optim: {}
 
 metrics:
-  run: {}
+  run:
+    epoch: null
+    global_step: null

@@ -78,6 +78,8 @@ hp:
 
 metrics:
   run:
+    epoch: null
+    global_step: null
     val_miou: null
     val_miou_at_past_ticks: null
     val_miou_local_only: null
