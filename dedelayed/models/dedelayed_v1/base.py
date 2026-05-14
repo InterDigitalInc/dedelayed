@@ -24,38 +24,23 @@ class Dedelayed_v1_Remote(nn.Module, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def encode_frames(self, x_remote: Tensor) -> Tensor:
-        raise NotImplementedError
-
-    @abstractmethod
-    def blend(self, z_encoded: Tensor) -> Tensor:
-        raise NotImplementedError
-
-    @abstractmethod
-    def prealign(self, z_blended: Tensor, past_ticks: Tensor) -> Tensor:
-        raise NotImplementedError
-
-    @abstractmethod
-    def head(
-        self,
-        z_prealigned: Tensor,
-        x_local_size: tuple[int, int],
-        output_keys: Sequence[str] = ("downlink_features",),
-    ) -> dict[str, Tensor]:
-        raise NotImplementedError
-
-    @abstractmethod
     def image_only(self, x_remote_latest: Tensor) -> dict[str, Tensor]:
         raise NotImplementedError
 
     @abstractmethod
-    def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
+    def stream_init(self, x_remote_latest: Tensor) -> Tensor:
         raise NotImplementedError
 
     @abstractmethod
-    def encode_step(
-        self, x_remote_latest: Tensor, z_propagated: Tensor
-    ) -> tuple[Tensor, Tensor]:
+    def stream_step(
+        self,
+        x_remote_latest: Tensor,
+        stream_state: Tensor,
+        *,
+        past_ticks: Tensor,
+        x_local_size: tuple[int, int],
+        output_keys: Sequence[str] = ("downlink_features",),
+    ) -> tuple[dict[str, Tensor], Tensor]:
         raise NotImplementedError
 
 

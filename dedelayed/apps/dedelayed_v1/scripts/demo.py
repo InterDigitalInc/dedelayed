@@ -228,8 +228,8 @@ def init_model(args):
         compile_kwargs: dict = {"mode": "max-autotune"}
         model.compile(**compile_kwargs)
         model.remote_model.compile(**compile_kwargs)
-        model.remote_model.encode_frames = torch.compile(
-            model.remote_model.encode_frames, **compile_kwargs
+        model.remote_model.stream_step = torch.compile(
+            model.remote_model.stream_step, **compile_kwargs
         )
         model.local_model.compile(**compile_kwargs)
         model.localonly_model.compile(**compile_kwargs)
@@ -247,36 +247,25 @@ class RemoteStream:
     @torch.inference_mode()
     def init(self):
         x_remote = torch.zeros(1, 3, *self.x_remote_size, device=device)
-        self.z_propagated = self.remote_model.init_stream_state(x_remote)
-        self.z_blended = self.remote_model.blend(self.z_propagated)
+        self.stream_state = self.remote_model.stream_init(x_remote)
 
     @torch.inference_mode()
-    def encode_step(self, frame_rgb: torch.Tensor) -> None:
-        x_remote_latest = preprocess_frame(
-            frame_rgb, size=self.x_remote_size
-        ).unsqueeze(0)
-        self.z_blended, self.z_propagated = self.remote_model.encode_step(
-            x_remote_latest,
-            self.z_propagated,
-        )
-
-    @torch.inference_mode()
-    def readout(
+    def step(
         self,
+        x_remote_latest: torch.Tensor,
         *,
         past_ticks: float,
         x_local_size: tuple[int, int],
         output_keys: Sequence[str] = ("downlink_features",),
     ) -> dict[str, torch.Tensor]:
-        z_prealigned = self.remote_model.prealign(
-            self.z_blended,
-            torch.tensor([float(past_ticks)], device=device),
-        )
-        out = self.remote_model.head(
-            z_prealigned,
+        out, stream_state = self.remote_model.stream_step(
+            x_remote_latest,
+            self.stream_state,
+            past_ticks=torch.tensor([float(past_ticks)], device=device),
             x_local_size=x_local_size,
             output_keys=output_keys,
         )
+        self.stream_state = stream_state.clone()
         return copy.deepcopy(out)
 
 
@@ -295,6 +284,10 @@ def iter_streaming_outputs(
     recv_predictive = {}
     remote_stream = RemoteStream(model.remote_model, x_remote_size=x_remote_size)
     remote_stream.init()
+    remote_predictive_stream = RemoteStream(
+        model.remote_model, x_remote_size=x_remote_size
+    )
+    remote_predictive_stream.init()
     seg_logits_blank: torch.Tensor | None = None
     downlink_features_shape = model.local_model.downlink_features_shape(x_local_size)
     downlink_features_zeros = torch.zeros((1, *downlink_features_shape), device=device)
@@ -302,13 +295,15 @@ def iter_streaming_outputs(
     start_time = time.perf_counter()
 
     for i, frame_rgb in enumerate(frames_rgb):
-        remote_stream.encode_step(frame_rgb)
-        out_remote = remote_stream.readout(
+        x_remote_latest = preprocess_frame(frame_rgb, size=x_remote_size).unsqueeze(0)
+        out_remote = remote_stream.step(
+            x_remote_latest,
             past_ticks=0,
             x_local_size=x_local_size,
             output_keys=("downlink_features", "downlink_seg_logits"),
         )
-        out_remote_predictive = remote_stream.readout(
+        out_remote_predictive = remote_predictive_stream.step(
+            x_remote_latest,
             past_ticks=past_ticks,
             x_local_size=x_local_size,
             output_keys=("downlink_features", "downlink_seg_logits"),

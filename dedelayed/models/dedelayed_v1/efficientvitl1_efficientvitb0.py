@@ -119,17 +119,26 @@ class Dedelayed_v1_EfficientViTL1_EfficientViTB0_Remote(Dedelayed_v1_Remote):
         )
         return {"seg_logits": self.main_model.image_model(x_remote_latest)}
 
-    def init_stream_state(self, x_remote_latest: Tensor) -> Tensor:
+    def stream_init(self, x_remote_latest: Tensor) -> Tensor:
         z = self.encode_frames(x_remote_latest[:, :, None])
         return z.expand(-1, -1, self.context_len, -1, -1).clone()
 
-    def encode_step(
-        self, x_remote_latest: Tensor, z_propagated: Tensor
-    ) -> tuple[Tensor, Tensor]:
-        z_next = self.encode_frames(x_remote_latest[:, :, None])
-        z_propagated = torch.cat((z_propagated[:, :, 1:], z_next), dim=2)
-        z_blended = self.blend(z_propagated)
-        return z_blended, z_propagated
+    def stream_step(
+        self,
+        x_remote_latest: Tensor,
+        stream_state: Tensor,
+        *,
+        past_ticks: Tensor,
+        x_local_size: tuple[int, int],
+        output_keys: Sequence[str] = ("downlink_features",),
+    ) -> tuple[dict[str, Tensor], Tensor]:
+        z_latest = self.encode_frames(x_remote_latest[:, :, None])
+        stream_state = torch.cat((stream_state[:, :, 1:], z_latest), dim=2)
+        z = stream_state
+        z = self.blend(z)
+        z = self.prealign(z, past_ticks)
+        out = self.head(z, x_local_size=x_local_size, output_keys=output_keys)
+        return out, stream_state
 
 
 @register_model("dedelayed_v1_efficientvitl1_efficientvitb0_local")
