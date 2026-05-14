@@ -50,7 +50,7 @@ from dedelayed.models.dedelayed_v1.factory import build_fused_model
 from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import compute_size
 from dedelayed.utils.trackers import build_tracker
-from dedelayed.utils.utils import TensorContainerMixin, get_attr_by_key
+from dedelayed.utils.utils import TensorContainerMixin, get_attr_by_key, is_cuda_device
 
 Config = DictConfig
 
@@ -191,12 +191,14 @@ def evaluate_dedelayed_v1_segmentation(
     if local_only:
         metrics["miou_local_only"] = build_metric()
     metrics["miou_remote_only"] = build_metric()
+    pin_memory = is_cuda_device(device)
     loader = DataLoader(
         dataset,
         batch_size=1,
         shuffle=False,
         drop_last=False,
         num_workers=num_workers,
+        pin_memory=pin_memory,
         collate_fn=functools.partial(
             collate,
             sample_temporal_indices=functools.partial(
@@ -219,7 +221,7 @@ def evaluate_dedelayed_v1_segmentation(
         if CUDA_GRAPH_MARK_STEP:
             torch.compiler.cudagraph_mark_step_begin()
         assert isinstance(batch, CollatedBatch)
-        batch = batch.to(device)
+        batch = batch.to(device, non_blocking=pin_memory)
         x_local = batch.x_local[:, :, -1]
         target = batch.target[:, 0]
         out_remote = model.remote_model(
@@ -285,6 +287,7 @@ def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float
         leave=False,
     )
     num_batches = len(runtime.dataloader["train"])
+    pin_memory = is_cuda_device(runtime.device)
 
     def compute_loss(seg_logits: Tensor, target: Tensor) -> Tensor:
         resize_logits = Resize(target.shape[-2:], interpolation=logits_interp)
@@ -294,7 +297,7 @@ def run_train_epoch(runtime: TrainRuntime, state: TrainState) -> dict[str, float
         if CUDA_GRAPH_MARK_STEP:
             torch.compiler.cudagraph_mark_step_begin()
         assert isinstance(batch, CollatedBatch)
-        batch = batch.to(runtime.device)
+        batch = batch.to(runtime.device, non_blocking=pin_memory)
         x_local = batch.x_local[:, :, -1]
         x_local_size = x_local.shape[-2:]
         target = batch.target[:, 0]
@@ -510,6 +513,7 @@ def main(cfg: DictConfig) -> None:
             ),
             drop_last=True,
             shuffle=True,
+            pin_memory=is_cuda_device(device),
             collate_fn=functools.partial(
                 collate,
                 sample_temporal_indices=functools.partial(

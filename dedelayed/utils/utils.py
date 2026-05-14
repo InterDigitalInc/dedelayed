@@ -5,6 +5,7 @@
 from dataclasses import fields, is_dataclass, replace
 from typing import Any, Callable, Self, TypeVar, cast
 
+import torch
 from torch import Tensor
 
 T = TypeVar("T")
@@ -27,6 +28,10 @@ def get_attr_by_key(obj: Any, key: str) -> Any:
     for subkey in filter(None, key.split(".")):
         obj = getattr(obj, subkey)
     return obj
+
+
+def is_cuda_device(device: str | torch.device) -> bool:
+    return torch.device(device).type == "cuda"
 
 
 class TensorContainerMixin:
