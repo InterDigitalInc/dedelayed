@@ -6,8 +6,9 @@ from __future__ import annotations
 
 import functools
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable
 
 import einops
 import hydra
@@ -49,7 +50,7 @@ from dedelayed.models.dedelayed_v1.factory import build_fused_model
 from dedelayed.utils.optim import RaisedCosineLR
 from dedelayed.utils.preprocessing import compute_size
 from dedelayed.utils.trackers import build_tracker
-from dedelayed.utils.utils import get_attr_by_key
+from dedelayed.utils.utils import TensorContainerMixin, get_attr_by_key
 
 Config = DictConfig
 
@@ -62,7 +63,8 @@ X_REMOTE_LEN = 4
 X_LOCAL_LEN = 1
 
 
-class TemporalSample(NamedTuple):
+@dataclass
+class TemporalSample:
     idx: ClipIdx
     past_ticks: int
     past_ticks_true: int  # For evaluation only. Models RTT delay mismatch / jitter.
@@ -94,19 +96,12 @@ def sample_temporal_indices_eval(
     )
 
 
-class CollatedBatch(NamedTuple):
+@dataclass
+class CollatedBatch(TensorContainerMixin):
     x_remote: Tensor
     x_local: Tensor
     target: Tensor
     past_ticks: Tensor
-
-    def to(self, device: str | torch.device) -> CollatedBatch:
-        return CollatedBatch(
-            x_remote=self.x_remote.to(device),
-            x_local=self.x_local.to(device),
-            target=self.target.to(device),
-            past_ticks=self.past_ticks.to(device),
-        )
 
 
 def collate(
